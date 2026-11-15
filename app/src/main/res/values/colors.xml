@@ -1,25 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Brand Emerald / WhatsApp Palette -->
     <color name="primary">#00A884</color>
     <color name="primary_dark">#008069</color>
+    <color name="primary_variant">#025144</color>
     <color name="accent">#25D366</color>
-    <color name="badge_gold">#FFB800</color>
+    <color name="badge_gold">#F59E0B</color>
 
-    <!-- Light Theme Surface & Text -->
-    <color name="surface_light">#FFFFFF</color>
-    <color name="background_light">#F6F8F9</color>
-    <color name="card_light">#FFFFFF</color>
-    <color name="text_primary_light">#111B21</color>
-    <color name="text_secondary_light">#667781</color>
-    <color name="border_light">#E9EDEF</color>
+    <!-- Material3 Override Colors (Replaces default M3 tonal pink/purple) -->
+    <color name="m3_primary">#00A884</color>
+    <color name="m3_on_primary">#FFFFFF</color>
+    <color name="m3_primary_container">#00382C</color>
+    <color name="m3_on_primary_container">#73F7D4</color>
+    
+    <color name="m3_secondary">#00A884</color>
+    <color name="m3_secondary_container">#1F2C34</color>
+    <color name="m3_on_secondary_container">#E9EDEF</color>
 
-    <!-- Dark Theme Surface & Text -->
+    <!-- Modern Dark Surfaces -->
     <color name="surface_dark">#121B22</color>
+    <color name="card_dark">#1F2C34</color>
     <color name="background_dark">#0B141A</color>
-    <color name="card_dark">#202C33</color>
+    <color name="border_dark">#2A3942</color>
     <color name="text_primary_dark">#E9EDEF</color>
     <color name="text_secondary_dark">#8696A0</color>
-    <color name="border_dark">#2A3942</color>
 
-    <color name="danger">#EA4335</color>
+    <!-- Modern Light Surfaces -->
+    <color name="surface_light">#FFFFFF</color>
+    <color name="card_light">#F0F2F5</color>
+    <color name="background_light">#F0F2F5</color>
+    <color name="border_light">#E9EDEF</color>
+    <color name="text_primary_light">#111B21</color>
+    <color name="text_secondary_light">#667781</color>
+
+    <color name="danger">#EF4444</color>
 </resources>

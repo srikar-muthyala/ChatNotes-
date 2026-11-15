@@ -1,7 +1,20 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.ChatNotes" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/primary</item>
-        <item name="colorSecondary">@color/accent</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorPrimaryContainer">#E0F2E9</item>
+        <item name="colorOnPrimaryContainer">#00382C</item>
+
+        <item name="colorSecondary">@color/primary_dark</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="colorSecondaryContainer">#E8F5E9</item>
+        <item name="colorOnSecondaryContainer">#00382C</item>
+
+        <item name="colorSurface">@color/surface_light</item>
+        <item name="colorOnSurface">@color/text_primary_light</item>
+        <item name="colorSurfaceVariant">#F0F2F5</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary_light</item>
+
         <item name="android:statusBarColor">@color/surface_light</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>

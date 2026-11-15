@@ -1,5 +1,6 @@
 package com.chatnotes.app.service
 
+import android.animation.ValueAnimator
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,12 +9,14 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
-import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.IBinder
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.*
+import android.view.animation.AccelerateInterpolator
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.*
 import androidx.core.app.NotificationCompat
@@ -40,11 +43,17 @@ class FloatingOverlayService : Service() {
     private var isScratchpadOpen = false
     private var activeTabIsChecklist = true
 
-    // UI elements inside scratchpad
+    // UI elements
     private var rvChecklist: RecyclerView? = null
     private var checklistAdapter: ChecklistAdapter? = null
     private var etFreeformNotes: EditText? = null
     private var tvBubbleBadge: TextView? = null
+    private var btnTabChecklist: TextView? = null
+    private var btnTabNotes: TextView? = null
+    private var layoutChecklistSection: View? = null
+    private var layoutNotesSection: View? = null
+    private var etNewChecklistItem: EditText? = null
+    private var tvEmptyChecklist: TextView? = null
 
     companion object {
         const val ACTION_SHOW = "com.chatnotes.app.ACTION_SHOW"
@@ -100,11 +109,8 @@ class FloatingOverlayService : Service() {
     private fun loadContact(name: String) {
         currentContactName = name
         currentData = repository.getContactData(name)
-
-        // Update badge count
         updateBadge()
 
-        // If scratchpad is currently open, refresh its content
         if (isScratchpadOpen) {
             updateScratchpadUI()
         }
@@ -135,6 +141,7 @@ class FloatingOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        val screenWidth = resources.displayMetrics.widthPixels
         bubbleParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -143,8 +150,8 @@ class FloatingOverlayService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 20
-            y = 300
+            x = screenWidth - 180
+            y = 350
         }
 
         setupBubbleTouchListener()
@@ -166,12 +173,13 @@ class FloatingOverlayService : Service() {
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
                     isClick = true
+                    view.animate().scaleX(1.15f).scaleY(1.15f).setDuration(120).start()
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (event.rawX - initialTouchX).toInt()
                     val dy = (event.rawY - initialTouchY).toInt()
-                    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                    if (Math.abs(dx) > 12 || Math.abs(dy) > 12) {
                         isClick = false
                     }
                     bubbleParams.x = initialX + dx
@@ -182,14 +190,36 @@ class FloatingOverlayService : Service() {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    view.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start()
                     if (isClick) {
                         openScratchpad()
+                    } else {
+                        // Smoothly snap to the nearest screen edge (like Facebook Messenger)
+                        snapBubbleToEdge()
                     }
                     true
                 }
                 else -> false
             }
         }
+    }
+
+    private fun snapBubbleToEdge() {
+        val view = bubbleView ?: return
+        val screenWidth = resources.displayMetrics.widthPixels
+        val currentX = bubbleParams.x
+        val targetX = if (currentX + (view.width / 2) < screenWidth / 2) 20 else (screenWidth - view.width - 20)
+
+        val animator = ValueAnimator.ofInt(currentX, targetX)
+        animator.duration = 250
+        animator.interpolator = DecelerateInterpolator()
+        animator.addUpdateListener { animation ->
+            bubbleParams.x = animation.animatedValue as Int
+            if (view.isAttachedToWindow) {
+                windowManager.updateViewLayout(view, bubbleParams)
+            }
+        }
+        animator.start()
     }
 
     private fun createScratchpadView() {
@@ -205,7 +235,7 @@ class FloatingOverlayService : Service() {
 
         scratchpadParams = WindowManager.LayoutParams(
             (resources.displayMetrics.widthPixels * 0.88).toInt(),
-            (resources.displayMetrics.heightPixels * 0.60).toInt(),
+            (resources.displayMetrics.heightPixels * 0.62).toInt(),
             layoutFlag,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
@@ -220,6 +250,14 @@ class FloatingOverlayService : Service() {
         val pad = scratchpadView ?: return
 
         rvChecklist = pad.findViewById(R.id.rvChecklist)
+        tvEmptyChecklist = pad.findViewById(R.id.tvEmptyChecklist)
+        btnTabChecklist = pad.findViewById(R.id.btnTabChecklist)
+        btnTabNotes = pad.findViewById(R.id.btnTabNotes)
+        layoutChecklistSection = pad.findViewById(R.id.layoutChecklistSection)
+        layoutNotesSection = pad.findViewById(R.id.layoutNotesSection)
+        etNewChecklistItem = pad.findViewById(R.id.etNewChecklistItem)
+        val btnAdd = pad.findViewById<TextView>(R.id.btnAddChecklistItem)
+
         rvChecklist?.layoutManager = LinearLayoutManager(this)
         checklistAdapter = ChecklistAdapter(
             items = mutableListOf(),
@@ -234,6 +272,7 @@ class FloatingOverlayService : Service() {
                         data.checklist.removeAt(index)
                         repository.saveContactData(data)
                         checklistAdapter?.updateItems(data.checklist)
+                        checkEmptyState()
                         updateBadge()
                         updateTabLabels()
                     }
@@ -242,24 +281,23 @@ class FloatingOverlayService : Service() {
         )
         rvChecklist?.adapter = checklistAdapter
 
-        val etNewItem = pad.findViewById<EditText>(R.id.etNewChecklistItem)
-        val btnAdd = pad.findViewById<Button>(R.id.btnAddChecklistItem)
-
         val addAction = {
-            val text = etNewItem.text.toString().trim()
+            val text = etNewChecklistItem?.text?.toString()?.trim() ?: ""
             if (text.isNotEmpty()) {
                 val data = currentData ?: ContactNotesData(contactName = currentContactName)
                 data.checklist.add(ChecklistItem(text = text, isDone = false))
                 repository.saveContactData(data)
                 checklistAdapter?.updateItems(data.checklist)
-                etNewItem.setText("")
+                etNewChecklistItem?.setText("")
+                checkEmptyState()
                 updateBadge()
                 updateTabLabels()
+                rvChecklist?.smoothScrollToPosition(data.checklist.size - 1)
             }
         }
 
         btnAdd.setOnClickListener { addAction() }
-        etNewItem.setOnEditorActionListener { _, actionId, _ ->
+        etNewChecklistItem?.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 addAction()
                 true
@@ -283,25 +321,22 @@ class FloatingOverlayService : Service() {
             override fun afterTextChanged(s: Editable?) {}
         })
 
-        // Tabs
-        val btnTabChecklist = pad.findViewById<Button>(R.id.btnTabChecklist)
-        val btnTabNotes = pad.findViewById<Button>(R.id.btnTabNotes)
-        val layoutChecklist = pad.findViewById<View>(R.id.layoutChecklistSection)
-        val layoutNotes = pad.findViewById<View>(R.id.layoutNotesSection)
-
-        btnTabChecklist.setOnClickListener {
-            activeTabIsChecklist = true
-            layoutChecklist.visibility = View.VISIBLE
-            layoutNotes.visibility = View.GONE
+        // Tabs with smooth crossfade
+        btnTabChecklist?.setOnClickListener {
+            if (!activeTabIsChecklist) {
+                activeTabIsChecklist = true
+                switchTabWithAnimation(showChecklist = true)
+            }
         }
 
-        btnTabNotes.setOnClickListener {
-            activeTabIsChecklist = false
-            layoutChecklist.visibility = View.GONE
-            layoutNotes.visibility = View.VISIBLE
+        btnTabNotes?.setOnClickListener {
+            if (activeTabIsChecklist) {
+                activeTabIsChecklist = false
+                switchTabWithAnimation(showChecklist = false)
+            }
         }
 
-        // Close button
+        // Close button with animated shrink
         pad.findViewById<View>(R.id.btnCloseScratchpad).setOnClickListener {
             closeScratchpad()
         }
@@ -316,38 +351,103 @@ class FloatingOverlayService : Service() {
         applyTheme(repository.isDarkTheme())
     }
 
+    private fun switchTabWithAnimation(showChecklist: Boolean) {
+        val isDark = repository.isDarkTheme()
+        if (showChecklist) {
+            btnTabChecklist?.setBackgroundResource(R.drawable.bg_tab_pill_active)
+            btnTabChecklist?.setTextColor(Color.WHITE)
+
+            btnTabNotes?.setBackgroundResource(if (isDark) R.drawable.bg_tab_pill_inactive_dark else R.drawable.bg_tab_pill_inactive_light)
+            btnTabNotes?.setTextColor(if (isDark) Color.parseColor("#8696A0") else Color.parseColor("#667781"))
+
+            layoutNotesSection?.animate()?.alpha(0f)?.setDuration(120)?.withEndAction {
+                layoutNotesSection?.visibility = View.GONE
+                layoutChecklistSection?.visibility = View.VISIBLE
+                layoutChecklistSection?.alpha = 0f
+                layoutChecklistSection?.animate()?.alpha(1f)?.setDuration(160)?.start()
+            }?.start()
+        } else {
+            btnTabNotes?.setBackgroundResource(R.drawable.bg_tab_pill_active)
+            btnTabNotes?.setTextColor(Color.WHITE)
+
+            btnTabChecklist?.setBackgroundResource(if (isDark) R.drawable.bg_tab_pill_inactive_dark else R.drawable.bg_tab_pill_inactive_light)
+            btnTabChecklist?.setTextColor(if (isDark) Color.parseColor("#8696A0") else Color.parseColor("#667781"))
+
+            layoutChecklistSection?.animate()?.alpha(0f)?.setDuration(120)?.withEndAction {
+                layoutChecklistSection?.visibility = View.GONE
+                layoutNotesSection?.visibility = View.VISIBLE
+                layoutNotesSection?.alpha = 0f
+                layoutNotesSection?.animate()?.alpha(1f)?.setDuration(160)?.start()
+            }?.start()
+        }
+    }
+
     private fun updateScratchpadUI() {
         val pad = scratchpadView ?: return
         val data = currentData ?: return
 
         pad.findViewById<TextView>(R.id.tvContactName).text = data.contactName
         checklistAdapter?.updateItems(data.checklist)
+        checkEmptyState()
         etFreeformNotes?.setText(data.freeformNotes)
         updateTabLabels()
     }
 
+    private fun checkEmptyState() {
+        val items = currentData?.checklist ?: emptyList()
+        if (items.isEmpty()) {
+            rvChecklist?.visibility = View.GONE
+            tvEmptyChecklist?.visibility = View.VISIBLE
+        } else {
+            rvChecklist?.visibility = View.VISIBLE
+            tvEmptyChecklist?.visibility = View.GONE
+        }
+    }
+
     private fun updateTabLabels() {
-        val pad = scratchpadView ?: return
         val data = currentData ?: return
         val total = data.checklist.size
         val done = data.checklist.count { it.isDone }
-        pad.findViewById<Button>(R.id.btnTabChecklist).text = "Checklist ($done/$total)"
+        btnTabChecklist?.text = "Checklist ($done/$total)"
     }
 
     private fun applyTheme(isDark: Boolean) {
         val pad = scratchpadView ?: return
         val container = pad.findViewById<View>(R.id.scratchpadContainer)
+        val tvContact = pad.findViewById<TextView>(R.id.tvContactName)
 
         if (isDark) {
             container.setBackgroundResource(R.drawable.bg_scratchpad_card_dark)
-            pad.findViewById<TextView>(R.id.tvContactName).setTextColor(Color.parseColor("#E9EDEF"))
+            tvContact.setTextColor(Color.parseColor("#E9EDEF"))
             etFreeformNotes?.setTextColor(Color.parseColor("#E9EDEF"))
             etFreeformNotes?.setHintTextColor(Color.parseColor("#8696A0"))
+            etNewChecklistItem?.setBackgroundResource(R.drawable.bg_tab_pill_inactive_dark)
+            etNewChecklistItem?.setTextColor(Color.parseColor("#E9EDEF"))
+            etNewChecklistItem?.setHintTextColor(Color.parseColor("#8696A0"))
+            if (!activeTabIsChecklist) {
+                btnTabChecklist?.setBackgroundResource(R.drawable.bg_tab_pill_inactive_dark)
+                btnTabChecklist?.setTextColor(Color.parseColor("#8696A0"))
+            }
+            if (activeTabIsChecklist) {
+                btnTabNotes?.setBackgroundResource(R.drawable.bg_tab_pill_inactive_dark)
+                btnTabNotes?.setTextColor(Color.parseColor("#8696A0"))
+            }
         } else {
             container.setBackgroundResource(R.drawable.bg_scratchpad_card_light)
-            pad.findViewById<TextView>(R.id.tvContactName).setTextColor(Color.parseColor("#111B21"))
+            tvContact.setTextColor(Color.parseColor("#111B21"))
             etFreeformNotes?.setTextColor(Color.parseColor("#111B21"))
             etFreeformNotes?.setHintTextColor(Color.parseColor("#667781"))
+            etNewChecklistItem?.setBackgroundResource(R.drawable.bg_tab_pill_inactive_light)
+            etNewChecklistItem?.setTextColor(Color.parseColor("#111B21"))
+            etNewChecklistItem?.setHintTextColor(Color.parseColor("#667781"))
+            if (!activeTabIsChecklist) {
+                btnTabChecklist?.setBackgroundResource(R.drawable.bg_tab_pill_inactive_light)
+                btnTabChecklist?.setTextColor(Color.parseColor("#667781"))
+            }
+            if (activeTabIsChecklist) {
+                btnTabNotes?.setBackgroundResource(R.drawable.bg_tab_pill_inactive_light)
+                btnTabNotes?.setTextColor(Color.parseColor("#667781"))
+            }
         }
         checklistAdapter?.setDarkTheme(isDark)
     }
@@ -361,19 +461,57 @@ class FloatingOverlayService : Service() {
 
     private fun openScratchpad() {
         isScratchpadOpen = true
-        bubbleView?.visibility = View.GONE
+        bubbleView?.animate()?.scaleX(0.4f)?.scaleY(0.4f)?.alpha(0f)?.setDuration(150)?.withEndAction {
+            bubbleView?.visibility = View.GONE
+            bubbleView?.scaleX = 1f
+            bubbleView?.scaleY = 1f
+            bubbleView?.alpha = 1f
+        }?.start()
+
         updateScratchpadUI()
-        if (scratchpadView?.isAttachedToWindow == false) {
-            windowManager.addView(scratchpadView, scratchpadParams)
+        val pad = scratchpadView ?: return
+
+        if (pad.isAttachedToWindow == false) {
+            windowManager.addView(pad, scratchpadParams)
         }
-        scratchpadView?.visibility = View.VISIBLE
+        pad.visibility = View.VISIBLE
+        pad.alpha = 0f
+        pad.scaleX = 0.78f
+        pad.scaleY = 0.78f
+        pad.animate()
+            .alpha(1f)
+            .scaleX(1.0f)
+            .scaleY(1.0f)
+            .setDuration(240)
+            .setInterpolator(OvershootInterpolator(1.1f))
+            .start()
     }
 
     private fun closeScratchpad() {
-        isScratchpadOpen = false
-        scratchpadView?.visibility = View.GONE
-        bubbleView?.visibility = View.VISIBLE
-        updateBadge()
+        val pad = scratchpadView ?: return
+        pad.animate()
+            .alpha(0f)
+            .scaleX(0.82f)
+            .scaleY(0.82f)
+            .setDuration(180)
+            .setInterpolator(AccelerateInterpolator())
+            .withEndAction {
+                isScratchpadOpen = false
+                pad.visibility = View.GONE
+                bubbleView?.visibility = View.VISIBLE
+                bubbleView?.scaleX = 0.5f
+                bubbleView?.scaleY = 0.5f
+                bubbleView?.alpha = 0f
+                bubbleView?.animate()
+                    ?.scaleX(1f)
+                    ?.scaleY(1f)
+                    ?.alpha(1f)
+                    ?.setDuration(200)
+                    ?.setInterpolator(OvershootInterpolator())
+                    ?.start()
+                updateBadge()
+            }
+            .start()
     }
 
     private fun hideAll() {
@@ -452,7 +590,7 @@ class ChecklistAdapter(
 
         if (item.isDone) {
             holder.tvText.paintFlags = holder.tvText.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
-            holder.tvText.alpha = 0.5f
+            holder.tvText.alpha = 0.45f
         } else {
             holder.tvText.paintFlags = holder.tvText.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
             holder.tvText.alpha = 1.0f
@@ -466,10 +604,10 @@ class ChecklistAdapter(
             item.isDone = isChecked
             if (isChecked) {
                 holder.tvText.paintFlags = holder.tvText.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
-                holder.tvText.alpha = 0.5f
+                holder.tvText.animate().alpha(0.45f).setDuration(160).start()
             } else {
                 holder.tvText.paintFlags = holder.tvText.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
-                holder.tvText.alpha = 1.0f
+                holder.tvText.animate().alpha(1.0f).setDuration(160).start()
             }
             onCheckToggled(position, isChecked)
         }
