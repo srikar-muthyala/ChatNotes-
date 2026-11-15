@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">ChatNotes</string>
+    <string name="accessibility_service_description">ChatNotes uses accessibility to identify the active WhatsApp chat name so that it can load your private notes and checklist for that specific contact.</string>
+    <string name="overlay_permission_title">1. Appear on Top</string>
+    <string name="overlay_permission_desc">Required to show the floating button while WhatsApp is open.</string>
+    <string name="accessibility_permission_title">2. Accessibility Service</string>
+    <string name="accessibility_permission_desc">Required to detect which chat is open and load their specific note.</string>
+    <string name="grant_permission">Grant</string>
+    <string name="permission_granted">Active</string>
+    <string name="service_running_title">Service is Ready</string>
+    <string name="service_running_desc">Open WhatsApp and tap any chat. Your floating notes bubble will appear automatically!</string>
+</resources>

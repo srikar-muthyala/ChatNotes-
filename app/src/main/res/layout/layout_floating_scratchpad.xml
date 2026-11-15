@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/scratchpadContainer"
+    android:layout_width="320dp"
+    android:layout_height="440dp"
+    android:background="@drawable/bg_scratchpad_card_dark"
+    android:elevation="16dp"
+    android:orientation="vertical">
+
+    <!-- Top Header -->
+    <LinearLayout
+        android:id="@+id/headerLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="12dp">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_note"
+            app:tint="@color/primary" />
+
+        <TextView
+            android:id="@+id/tvContactName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Contact Name"
+            android:textColor="@color/text_primary_dark"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <!-- Theme Toggle -->
+        <ImageView
+            android:id="@+id/btnToggleTheme"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:padding="6dp"
+            android:src="@drawable/ic_theme"
+            app:tint="@color/text_secondary_dark" />
+
+        <!-- Close Overlay -->
+        <ImageView
+            android:id="@+id/btnCloseScratchpad"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:padding="6dp"
+            android:src="@drawable/ic_close"
+            app:tint="@color/text_secondary_dark" />
+    </LinearLayout>
+
+    <!-- Tab Bar: Checklist vs Notes -->
+    <LinearLayout
+        android:id="@+id/tabBarLayout"
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="8dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnTabChecklist"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="4dp"
+            android:layout_weight="1"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:padding="0dp"
+            android:text="Checklist (0)"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/btnTabNotes"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="4dp"
+            android:layout_weight="1"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:padding="0dp"
+            android:text="Notes"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <!-- View A: Checklist View -->
+    <LinearLayout
+        android:id="@+id/layoutChecklistSection"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvChecklist"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+
+        <TextView
+            android:id="@+id/tvEmptyChecklist"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="No checklist items yet.\nAdd talking points below!"
+            android:textColor="@color/text_secondary_dark"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <!-- Input Bar -->
+        <LinearLayout
+            android:id="@+id/inputBarLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="8dp">
+
+            <EditText
+                android:id="@+id/etNewChecklistItem"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_scratchpad_card_dark"
+                android:hint="Add talking point..."
+                android:imeOptions="actionDone"
+                android:inputType="textCapSentences"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:textColor="@color/text_primary_dark"
+                android:textColorHint="@color/text_secondary_dark"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnAddChecklistItem"
+                style="@style/Widget.Material3.Button"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginStart="6dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:text="Add"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- View B: Freeform Notes View -->
+    <LinearLayout
+        android:id="@+id/layoutNotesSection"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <EditText
+            android:id="@+id/etFreeformNotes"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="@null"
+            android:gravity="top|start"
+            android:hint="Write general notes, addresses, memos, or thoughts about this contact..."
+            android:padding="12dp"
+            android:textColor="@color/text_primary_dark"
+            android:textColorHint="@color/text_secondary_dark"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:id="@+id/tvAutoSaveIndicator"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="✓ Saved locally"
+                android:textColor="@color/primary"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/tvNotesCharCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0 characters"
+                android:textColor="@color/text_secondary_dark"
+                android:textSize="11sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+</LinearLayout>

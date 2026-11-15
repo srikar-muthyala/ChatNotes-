@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#00A884</color>
+    <color name="primary_dark">#008069</color>
+    <color name="accent">#25D366</color>
+    <color name="badge_gold">#FFB800</color>
+
+    <!-- Light Theme Surface & Text -->
+    <color name="surface_light">#FFFFFF</color>
+    <color name="background_light">#F6F8F9</color>
+    <color name="card_light">#FFFFFF</color>
+    <color name="text_primary_light">#111B21</color>
+    <color name="text_secondary_light">#667781</color>
+    <color name="border_light">#E9EDEF</color>
+
+    <!-- Dark Theme Surface & Text -->
+    <color name="surface_dark">#121B22</color>
+    <color name="background_dark">#0B141A</color>
+    <color name="card_dark">#202C33</color>
+    <color name="text_primary_dark">#E9EDEF</color>
+    <color name="text_secondary_dark">#8696A0</color>
+    <color name="border_dark">#2A3942</color>
+
+    <color name="danger">#EA4335</color>
+</resources>

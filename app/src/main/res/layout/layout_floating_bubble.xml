@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/bubbleRoot"
+    android:layout_width="60dp"
+    android:layout_height="60dp"
+    android:clickable="true"
+    android:focusable="true">
+
+    <!-- Circle Bubble Button -->
+    <ImageView
+        android:id="@+id/ivBubbleIcon"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_floating_bubble"
+        android:elevation="8dp"
+        android:padding="12dp"
+        android:src="@drawable/ic_note"
+        app:tint="#FFFFFF" />
+
+    <!-- Badge Counter for Checklist Items -->
+    <TextView
+        android:id="@+id/tvBubbleBadge"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="2dp"
+        android:layout_marginEnd="2dp"
+        android:background="@drawable/bg_badge"
+        android:elevation="10dp"
+        android:gravity="center"
+        android:text="0"
+        android:textColor="#121B22"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+</FrameLayout>
