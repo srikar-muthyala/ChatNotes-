@@ -1,7 +1,7 @@
 # 📝 ChatNotes: Floating Notes & Checklists for WhatsApp
 
 <p align="center">
-  <img src="screenshots/preview.jpg" alt="ChatNotes Android Preview" width="320" style="border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);" />
+  <img src="screenshots/hero_preview.jpg" alt="ChatNotes Android Showcase" width="600" style="border-radius: 20px; box-shadow: 0 12px 40px rgba(0, 168, 132, 0.2);" />
 </p>
 
 <p align="center">

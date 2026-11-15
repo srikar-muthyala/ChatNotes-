@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 680" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradients -->
+    <radialGradient id="bgGlow" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#00A884" stop-opacity="0.25"/>
+      <stop offset="60%" stop-color="#0B141A" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#060A0D" stop-opacity="1"/>
+    </radialGradient>
+
+    <!-- Card Shadow -->
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Studio Background -->
+  <rect width="800" height="680" fill="url(#bgGlow)"/>
+
+  <!-- Phone Shell Shadow & Frame -->
+  <g transform="translate(225, 40)" filter="url(#shadow)">
+    <!-- Outer Bezel -->
+    <rect width="350" height="600" rx="42" fill="#182229" stroke="#2A3942" stroke-width="2.5"/>
+    <!-- Screen Glass -->
+    <rect x="8" y="8" width="334" height="584" rx="36" fill="#0B141A"/>
+
+    <!-- Punch Hole Camera -->
+    <circle cx="175" cy="22" r="5" fill="#000000"/>
+
+    <!-- Status Bar -->
+    <text x="32" y="26" fill="#8696A0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">09:41</text>
+    <g transform="translate(300, 18)" fill="#8696A0">
+      <path d="M0 8 h4 v-2 h-4 v2 z M5 8 h4 v-4 h-4 v4 z M10 8 h4 v-6 h-4 v6 z M15 8 h4 v-8 h-4 v8 z" />
+    </g>
+
+    <!-- WhatsApp Top Header Bar -->
+    <rect x="8" y="36" width="334" height="52" fill="#1F2C34"/>
+    <!-- Back Arrow -->
+    <path d="M26 62 L34 54 M26 62 L34 70 M26 62 L42 62" stroke="#E9EDEF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Contact Avatar -->
+    <circle cx="62" cy="62" r="17" fill="#7C3AED"/>
+    <text x="62" y="67" fill="#FFFFFF" font-family="-apple-system, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">A</text>
+    <!-- Contact Name & Status -->
+    <text x="88" y="58" fill="#E9EDEF" font-family="-apple-system, sans-serif" font-size="14" font-weight="600">Alex Turner</text>
+    <text x="88" y="72" fill="#00A884" font-family="-apple-system, sans-serif" font-size="10" font-weight="500">online</text>
+
+    <!-- Chat Message 1 (Incoming) -->
+    <rect x="24" y="110" width="220" height="48" rx="14" fill="#1F2C34"/>
+    <text x="38" y="132" fill="#E9EDEF" font-family="-apple-system, sans-serif" font-size="12">Hey, do you have the Q4 budget?</text>
+    <text x="216" y="148" fill="#8696A0" font-family="-apple-system, sans-serif" font-size="9">09:38</text>
+
+    <!-- Chat Message 2 (Outgoing) -->
+    <rect x="110" y="172" width="218" height="48" rx="14" fill="#005C4B"/>
+    <text x="124" y="194" fill="#FFFFFF" font-family="-apple-system, sans-serif" font-size="12">Checking my notes right now!</text>
+    <text x="296" y="210" fill="#73F7D4" font-family="-apple-system, sans-serif" font-size="9">09:40 ✓✓</text>
+
+    <!-- Floating Bubble Pin on screen edge -->
+    <g transform="translate(306, 240)" filter="url(#glow)">
+      <circle cx="16" cy="16" r="18" fill="#00A884" stroke="#FFFFFF" stroke-width="2"/>
+      <text x="16" y="21" fill="#FFFFFF" font-size="15" text-anchor="middle">📝</text>
+    </g>
+
+    <!-- FLOATING SCRATCHPAD MODAL (Active Overlay) -->
+    <g transform="translate(24, 210)" filter="url(#shadow)">
+      <rect width="302" height="340" rx="20" fill="#121B22" stroke="#2A3942" stroke-width="1.5"/>
+
+      <!-- Scratchpad Header -->
+      <g transform="translate(16, 20)">
+        <text x="0" y="0" fill="#00A884" font-size="14">📌</text>
+        <text x="22" y="-1" fill="#E9EDEF" font-family="-apple-system, sans-serif" font-size="13" font-weight="700">Alex Turner</text>
+        <text x="200" y="-1" fill="#00A884" font-family="-apple-system, sans-serif" font-size="10" font-weight="600">✓ Auto-saved</text>
+        <text x="260" y="-1" fill="#8696A0" font-family="-apple-system, sans-serif" font-size="12" font-weight="bold">✕</text>
+      </g>
+
+      <!-- Tabs (Checklist active, Notes inactive) -->
+      <rect x="16" y="34" width="130" height="32" rx="9" fill="#00A884"/>
+      <text x="81" y="54" fill="#FFFFFF" font-family="-apple-system, sans-serif" font-size="11" font-weight="700" text-anchor="middle">☑️ Checklist (1/3)</text>
+
+      <rect x="156" y="34" width="130" height="32" rx="9" fill="#1F2C34" stroke="#2A3942" stroke-width="1"/>
+      <text x="221" y="54" fill="#8696A0" font-family="-apple-system, sans-serif" font-size="11" font-weight="600" text-anchor="middle">📝 Notes</text>
+
+      <!-- Checklist Items -->
+      <!-- Item 1 (Done) -->
+      <g transform="translate(16, 80)">
+        <rect width="270" height="38" rx="10" fill="#1F2C34" opacity="0.6"/>
+        <rect x="10" y="11" width="16" height="16" rx="4" fill="#00A884"/>
+        <path d="M14 19 L17 22 L22 15" stroke="#FFFFFF" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <text x="36" y="23" fill="#8696A0" font-family="-apple-system, sans-serif" font-size="11" text-decoration="line-through">Review Q4 timeline updates</text>
+      </g>
+
+      <!-- Item 2 (Pending) -->
+      <g transform="translate(16, 126)">
+        <rect width="270" height="38" rx="10" fill="#1F2C34" stroke="#2A3942" stroke-width="1"/>
+        <rect x="10" y="11" width="16" height="16" rx="4" fill="none" stroke="#00A884" stroke-width="1.8"/>
+        <text x="36" y="23" fill="#E9EDEF" font-family="-apple-system, sans-serif" font-size="11" font-weight="500">Confirm cloud hosting payment</text>
+      </g>
+
+      <!-- Item 3 (Pending) -->
+      <g transform="translate(16, 172)">
+        <rect width="270" height="38" rx="10" fill="#1F2C34" stroke="#2A3942" stroke-width="1"/>
+        <rect x="10" y="11" width="16" height="16" rx="4" fill="none" stroke="#00A884" stroke-width="1.8"/>
+        <text x="36" y="23" fill="#E9EDEF" font-family="-apple-system, sans-serif" font-size="11" font-weight="500">Send updated Figma mockup</text>
+      </g>
+
+      <!-- Add New Item Bar -->
+      <g transform="translate(16, 280)">
+        <rect width="205" height="38" rx="10" fill="#1F2C34" stroke="#2A3942" stroke-width="1"/>
+        <text x="14" y="24" fill="#8696A0" font-family="-apple-system, sans-serif" font-size="11">Add talking point...</text>
+
+        <rect x="215" y="0" width="55" height="38" rx="10" fill="#00A884"/>
+        <text x="242" y="24" fill="#FFFFFF" font-family="-apple-system, sans-serif" font-size="12" font-weight="700" text-anchor="middle">Add</text>
+      </g>
+    </g>
+
+    <!-- Bottom Navigation Bar Indicator -->
+    <rect x="135" y="578" width="80" height="4" rx="2" fill="#8696A0"/>
+  </g>
+</svg>
