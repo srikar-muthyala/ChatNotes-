@@ -1,11 +1,16 @@
-name: Build Android APK
+name: Build and Release Android APK
 
 on:
   push:
     branches: [ "main", "master" ]
+    tags:
+      - "v*"
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -29,9 +34,39 @@ jobs:
       - name: Build Debug APK
         run: gradle assembleDebug --stacktrace
 
+      - name: Prepare Clean Release Asset
+        run: |
+          mkdir -p release-assets
+          cp app/build/outputs/apk/debug/*.apk release-assets/ChatNotes.apk
+
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ChatNotes-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: release-assets/ChatNotes.apk
           retention-days: 14
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/ChatNotes.apk
+          name: ChatNotes ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          body: |
+            ### 📝 ChatNotes ${{ github.ref_name }}
+
+            A private, floating scratchpad that automatically appears when you open WhatsApp chats.
+
+            #### ✨ Features:
+            - **Unique Per Contact**: Independent checklists and notes for each person you chat with.
+            - **Interactive Checklist**: Cross off talking points while messaging.
+            - **Freeform Notes**: Store memos, addresses, and details.
+            - **100% Offline & Private**: Zero data leaves your device.
+
+            #### 📥 Quick Installation:
+            1. Tap **`ChatNotes.apk`** below to download and install on your Android device.
+            2. Open the app and turn ON the two permissions (**Appear on Top** & **Accessibility Service**).
+            3. Open any WhatsApp conversation and your floating notes pill will appear!
+          draft: false
+          prerelease: false
