@@ -40,7 +40,6 @@ class FloatingOverlayService : Service() {
 
     private var currentContactName: String = "Unknown"
     private var currentData: ContactNotesData? = null
-    private var isScratchpadOpen = false
     private var activeTabIsChecklist = true
 
     // UI elements
@@ -61,6 +60,9 @@ class FloatingOverlayService : Service() {
         const val EXTRA_CONTACT = "extra_contact_name"
         private const val CHANNEL_ID = "chatnotes_overlay_channel"
         private const val NOTIFICATION_ID = 1001
+
+        @Volatile
+        var isScratchpadOpen = false
 
         fun showOverlay(context: Context, contactName: String) {
             val intent = Intent(context, FloatingOverlayService::class.java).apply {
@@ -97,10 +99,14 @@ class FloatingOverlayService : Service() {
             ACTION_SHOW -> {
                 val contact = intent.getStringExtra(EXTRA_CONTACT) ?: "WhatsApp Chat"
                 loadContact(contact)
-                showBubble()
+                if (!isScratchpadOpen) {
+                    showBubble()
+                }
             }
             ACTION_HIDE -> {
-                hideAll()
+                if (!isScratchpadOpen) {
+                    hideAll()
+                }
             }
         }
         return START_STICKY
@@ -234,13 +240,14 @@ class FloatingOverlayService : Service() {
         }
 
         scratchpadParams = WindowManager.LayoutParams(
-            (resources.displayMetrics.widthPixels * 0.88).toInt(),
-            (resources.displayMetrics.heightPixels * 0.62).toInt(),
+            (resources.displayMetrics.widthPixels * 0.90).toInt(),
+            (resources.displayMetrics.heightPixels * 0.58).toInt(),
             layoutFlag,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.CENTER
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
         }
 
         initScratchpadWidgets()

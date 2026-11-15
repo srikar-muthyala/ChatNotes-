@@ -33,6 +33,15 @@ class WhatsAppAccessibilityService : AccessibilityService() {
             return
         }
 
+        // If the scratchpad is currently open and user is typing in it, never interrupt!
+        if (FloatingOverlayService.isScratchpadOpen) {
+            cancelPendingHide()
+            if (packageName != WHATSAPP_PKG && packageName != WHATSAPP_BUSINESS_PKG) {
+                scheduleHide()
+            }
+            return
+        }
+
         // If the user navigated away to another app (e.g., Home screen, Chrome, Instagram)
         if (packageName != WHATSAPP_PKG && packageName != WHATSAPP_BUSINESS_PKG) {
             scheduleHide()
