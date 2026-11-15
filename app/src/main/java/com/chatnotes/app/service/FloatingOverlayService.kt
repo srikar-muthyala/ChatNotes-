@@ -415,15 +415,24 @@ class FloatingOverlayService : Service() {
         val pad = scratchpadView ?: return
         val container = pad.findViewById<View>(R.id.scratchpadContainer)
         val tvContact = pad.findViewById<TextView>(R.id.tvContactName)
+        val btnClose = pad.findViewById<ImageView>(R.id.btnCloseScratchpad)
+        val btnTheme = pad.findViewById<ImageView>(R.id.btnToggleTheme)
+        val ivHeader = pad.findViewById<ImageView>(R.id.ivHeaderIcon)
 
         if (isDark) {
             container.setBackgroundResource(R.drawable.bg_scratchpad_card_dark)
             tvContact.setTextColor(Color.parseColor("#E9EDEF"))
+            btnClose.setColorFilter(Color.parseColor("#E9EDEF"))
+            btnTheme.setColorFilter(Color.parseColor("#E9EDEF"))
+            ivHeader.setColorFilter(Color.parseColor("#00A884"))
+
             etFreeformNotes?.setTextColor(Color.parseColor("#E9EDEF"))
             etFreeformNotes?.setHintTextColor(Color.parseColor("#8696A0"))
             etNewChecklistItem?.setBackgroundResource(R.drawable.bg_tab_pill_inactive_dark)
             etNewChecklistItem?.setTextColor(Color.parseColor("#E9EDEF"))
             etNewChecklistItem?.setHintTextColor(Color.parseColor("#8696A0"))
+            tvEmptyChecklist?.setTextColor(Color.parseColor("#8696A0"))
+
             if (!activeTabIsChecklist) {
                 btnTabChecklist?.setBackgroundResource(R.drawable.bg_tab_pill_inactive_dark)
                 btnTabChecklist?.setTextColor(Color.parseColor("#8696A0"))
@@ -435,11 +444,17 @@ class FloatingOverlayService : Service() {
         } else {
             container.setBackgroundResource(R.drawable.bg_scratchpad_card_light)
             tvContact.setTextColor(Color.parseColor("#111B21"))
+            btnClose.setColorFilter(Color.parseColor("#111B21"))
+            btnTheme.setColorFilter(Color.parseColor("#111B21"))
+            ivHeader.setColorFilter(Color.parseColor("#00A884"))
+
             etFreeformNotes?.setTextColor(Color.parseColor("#111B21"))
             etFreeformNotes?.setHintTextColor(Color.parseColor("#667781"))
             etNewChecklistItem?.setBackgroundResource(R.drawable.bg_tab_pill_inactive_light)
             etNewChecklistItem?.setTextColor(Color.parseColor("#111B21"))
             etNewChecklistItem?.setHintTextColor(Color.parseColor("#667781"))
+            tvEmptyChecklist?.setTextColor(Color.parseColor("#667781"))
+
             if (!activeTabIsChecklist) {
                 btnTabChecklist?.setBackgroundResource(R.drawable.bg_tab_pill_inactive_light)
                 btnTabChecklist?.setTextColor(Color.parseColor("#667781"))

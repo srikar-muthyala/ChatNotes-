@@ -1,8 +1,6 @@
 package com.chatnotes.app.service
 
 import android.accessibilityservice.AccessibilityService
-import android.content.Intent
-import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -21,12 +19,13 @@ class WhatsAppAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
 
-        // Verify overlay permission before attempting to show overlay
+        // Verify overlay permission
         if (!Settings.canDrawOverlays(this)) return
 
         val packageName = event.packageName?.toString() ?: return
+
+        // 1. If user is in ANY app other than WhatsApp, hide the overlay immediately
         if (packageName != WHATSAPP_PKG && packageName != WHATSAPP_BUSINESS_PKG) {
-            // User switched away from WhatsApp
             if (currentActiveContact != null) {
                 currentActiveContact = null
                 FloatingOverlayService.hideOverlay(this)
@@ -34,21 +33,33 @@ class WhatsAppAccessibilityService : AccessibilityService() {
             return
         }
 
-        // We are inside WhatsApp
-        val detectedContact = extractContactNameFromWindow()
+        // 2. We are inside WhatsApp: check whether an actual chat conversation is active
+        val detectedContact = extractContactNameFromChat()
+
         if (!detectedContact.isNullOrBlank()) {
             if (detectedContact != currentActiveContact) {
                 currentActiveContact = detectedContact
-                Log.d(TAG, "Active WhatsApp chat detected: $detectedContact")
+                Log.d(TAG, "Active chat: $detectedContact")
                 FloatingOverlayService.showOverlay(this, detectedContact)
+            }
+        } else {
+            // In WhatsApp, but on the main list / settings / search -> hide overlay
+            if (currentActiveContact != null) {
+                currentActiveContact = null
+                FloatingOverlayService.hideOverlay(this)
             }
         }
     }
 
-    private fun extractContactNameFromWindow(): String? {
+    private fun extractContactNameFromChat(): String? {
         val rootNode = rootInActiveWindow ?: return null
         try {
-            // Strategy 1: Check known WhatsApp contact title view IDs
+            // First verify we are inside an actual chat conversation:
+            // An active chat conversation almost always contains the message input field or back button
+            val hasChatInput = findNodeByTextOrHint(rootNode, listOf("type a message", "message", "message..."))
+            val hasVoiceRecord = findNodeByDescription(rootNode, listOf("voice message", "record voice message", "voice"))
+
+            // Strategy 1: Known WhatsApp conversation title IDs
             val knownIds = listOf(
                 "com.whatsapp:id/conversation_contact_name",
                 "com.whatsapp.w4b:id/conversation_contact_name",
@@ -68,14 +79,16 @@ class WhatsAppAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // Strategy 2: Scan the top toolbar area for contact name TextView
-            val foundTitle = scanToolbarChild(rootNode)
-            if (foundTitle != null && !isIgnoredTitle(foundTitle)) {
-                return foundTitle
+            // Strategy 2: If we are in a chat screen, search the top action bar for the contact name
+            if (hasChatInput || hasVoiceRecord) {
+                val foundTitle = scanToolbarChild(rootNode)
+                if (foundTitle != null && !isIgnoredTitle(foundTitle)) {
+                    return foundTitle
+                }
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error extracting contact name: ${e.message}")
+            Log.e(TAG, "Error in extractContactNameFromChat: ${e.message}")
         }
         return null
     }
@@ -85,10 +98,10 @@ class WhatsAppAccessibilityService : AccessibilityService() {
         if (className.contains("TextView", ignoreCase = true)) {
             val text = node.text?.toString()?.trim()
             if (!text.isNullOrBlank() && !isIgnoredTitle(text)) {
-                // Ensure it's placed near top of the screen (ActionBar/Toolbar)
                 val bounds = android.graphics.Rect()
                 node.getBoundsInScreen(bounds)
-                if (bounds.top < 300 && bounds.bottom > 50 && bounds.left > 80) {
+                // The contact title is located in the top header
+                if (bounds.top < 320 && bounds.bottom > 40 && bounds.left > 60) {
                     return text
                 }
             }
@@ -103,8 +116,32 @@ class WhatsAppAccessibilityService : AccessibilityService() {
         return null
     }
 
+    private fun findNodeByTextOrHint(root: AccessibilityNodeInfo, keywords: List<String>): Boolean {
+        for (keyword in keywords) {
+            val nodes = root.findAccessibilityNodeInfosByText(keyword)
+            if (!nodes.isNullOrEmpty()) return true
+        }
+        return false
+    }
+
+    private fun findNodeByDescription(root: AccessibilityNodeInfo, keywords: List<String>): Boolean {
+        return searchContentDescription(root, keywords)
+    }
+
+    private fun searchContentDescription(node: AccessibilityNodeInfo, keywords: List<String>): Boolean {
+        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+        for (keyword in keywords) {
+            if (desc.contains(keyword)) return true
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (searchContentDescription(child, keywords)) return true
+        }
+        return false
+    }
+
     private fun isIgnoredTitle(text: String): Boolean {
-        val lower = text.lowercase()
+        val lower = text.lowercase().trim()
         return lower == "whatsapp" ||
                 lower == "chats" ||
                 lower == "status" ||
@@ -113,12 +150,18 @@ class WhatsAppAccessibilityService : AccessibilityService() {
                 lower == "communities" ||
                 lower == "search" ||
                 lower == "search…" ||
-                lower.startsWith("type a message")
+                lower == "ask meta ai or search" ||
+                lower.startsWith("ask meta ai") ||
+                lower.startsWith("meta ai") ||
+                lower == "unread" ||
+                lower == "favourites" ||
+                lower == "groups" ||
+                lower == "all" ||
+                lower.startsWith("type a message") ||
+                lower == "message"
     }
 
-    override fun onInterrupt() {
-        Log.d(TAG, "Accessibility Service interrupted")
-    }
+    override fun onInterrupt() {}
 
     override fun onDestroy() {
         super.onDestroy()
