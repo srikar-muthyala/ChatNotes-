@@ -1,6 +1,8 @@
 package com.chatnotes.app.service
 
 import android.accessibilityservice.AccessibilityService
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -9,57 +11,76 @@ import android.view.accessibility.AccessibilityNodeInfo
 class WhatsAppAccessibilityService : AccessibilityService() {
 
     private var currentActiveContact: String? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var pendingHideRunnable: Runnable? = null
 
     companion object {
         private const val TAG = "ChatNotes_A11y"
         private const val WHATSAPP_PKG = "com.whatsapp"
         private const val WHATSAPP_BUSINESS_PKG = "com.whatsapp.w4b"
+        private const val MY_PKG = "com.chatnotes.app"
+        private const val HIDE_DELAY_MS = 600L
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
-
-        // Verify overlay permission
         if (!Settings.canDrawOverlays(this)) return
 
         val packageName = event.packageName?.toString() ?: return
 
-        // 1. If user is in ANY app other than WhatsApp, hide the overlay immediately
-        if (packageName != WHATSAPP_PKG && packageName != WHATSAPP_BUSINESS_PKG) {
-            if (currentActiveContact != null) {
-                currentActiveContact = null
-                FloatingOverlayService.hideOverlay(this)
-            }
+        // Ignore events from our own app, keyboards, and system UI to prevent self-hiding loops!
+        if (isIgnoredPackage(packageName)) {
             return
         }
 
-        // 2. We are inside WhatsApp: check whether an actual chat conversation is active
-        val detectedContact = extractContactNameFromChat()
+        // If the user navigated away to another app (e.g., Home screen, Chrome, Instagram)
+        if (packageName != WHATSAPP_PKG && packageName != WHATSAPP_BUSINESS_PKG) {
+            scheduleHide()
+            return
+        }
+
+        // We are inside WhatsApp: check for active conversation
+        val detectedContact = extractContactName()
 
         if (!detectedContact.isNullOrBlank()) {
+            // Cancel any pending hide because we are definitely in an active chat
+            cancelPendingHide()
+
             if (detectedContact != currentActiveContact) {
                 currentActiveContact = detectedContact
-                Log.d(TAG, "Active chat: $detectedContact")
+                Log.d(TAG, "Showing overlay for: $detectedContact")
                 FloatingOverlayService.showOverlay(this, detectedContact)
             }
         } else {
-            // In WhatsApp, but on the main list / settings / search -> hide overlay
-            if (currentActiveContact != null) {
-                currentActiveContact = null
-                FloatingOverlayService.hideOverlay(this)
-            }
+            // In WhatsApp, but on the main chat list / search / settings
+            scheduleHide()
         }
     }
 
-    private fun extractContactNameFromChat(): String? {
+    private fun scheduleHide() {
+        if (currentActiveContact == null) return
+        if (pendingHideRunnable != null) return
+
+        pendingHideRunnable = Runnable {
+            currentActiveContact = null
+            FloatingOverlayService.hideOverlay(this)
+            pendingHideRunnable = null
+            Log.d(TAG, "Overlay hidden")
+        }
+        mainHandler.postDelayed(pendingHideRunnable!!, HIDE_DELAY_MS)
+    }
+
+    private fun cancelPendingHide() {
+        pendingHideRunnable?.let {
+            mainHandler.removeCallbacks(it)
+            pendingHideRunnable = null
+        }
+    }
+
+    private fun extractContactName(): String? {
         val rootNode = rootInActiveWindow ?: return null
         try {
-            // First verify we are inside an actual chat conversation:
-            // An active chat conversation almost always contains the message input field or back button
-            val hasChatInput = findNodeByTextOrHint(rootNode, listOf("type a message", "message", "message..."))
-            val hasVoiceRecord = findNodeByDescription(rootNode, listOf("voice message", "record voice message", "voice"))
-
-            // Strategy 1: Known WhatsApp conversation title IDs
+            // 1. Direct search by WhatsApp conversation contact name IDs
             val knownIds = listOf(
                 "com.whatsapp:id/conversation_contact_name",
                 "com.whatsapp.w4b:id/conversation_contact_name",
@@ -79,65 +100,47 @@ class WhatsAppAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // Strategy 2: If we are in a chat screen, search the top action bar for the contact name
-            if (hasChatInput || hasVoiceRecord) {
-                val foundTitle = scanToolbarChild(rootNode)
-                if (foundTitle != null && !isIgnoredTitle(foundTitle)) {
-                    return foundTitle
-                }
+            // 2. Fallback: Search top action bar for the contact TextView
+            val foundInToolbar = scanToolbar(rootNode)
+            if (foundInToolbar != null && !isIgnoredTitle(foundInToolbar)) {
+                return foundInToolbar
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error in extractContactNameFromChat: ${e.message}")
+            Log.e(TAG, "Error extracting contact: ${e.message}")
         }
         return null
     }
 
-    private fun scanToolbarChild(node: AccessibilityNodeInfo): String? {
+    private fun scanToolbar(node: AccessibilityNodeInfo): String? {
         val className = node.className?.toString() ?: ""
         if (className.contains("TextView", ignoreCase = true)) {
             val text = node.text?.toString()?.trim()
             if (!text.isNullOrBlank() && !isIgnoredTitle(text)) {
                 val bounds = android.graphics.Rect()
                 node.getBoundsInScreen(bounds)
-                // The contact title is located in the top header
-                if (bounds.top < 320 && bounds.bottom > 40 && bounds.left > 60) {
+                // WhatsApp contact header is located at the top bar
+                if (bounds.top < 350 && bounds.bottom > 40 && bounds.left > 60) {
                     return text
                 }
             }
         }
 
-        val childCount = node.childCount
-        for (i in 0 until childCount) {
+        for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
-            val result = scanToolbarChild(child)
+            val result = scanToolbar(child)
             if (result != null) return result
         }
         return null
     }
 
-    private fun findNodeByTextOrHint(root: AccessibilityNodeInfo, keywords: List<String>): Boolean {
-        for (keyword in keywords) {
-            val nodes = root.findAccessibilityNodeInfosByText(keyword)
-            if (!nodes.isNullOrEmpty()) return true
-        }
-        return false
-    }
-
-    private fun findNodeByDescription(root: AccessibilityNodeInfo, keywords: List<String>): Boolean {
-        return searchContentDescription(root, keywords)
-    }
-
-    private fun searchContentDescription(node: AccessibilityNodeInfo, keywords: List<String>): Boolean {
-        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-        for (keyword in keywords) {
-            if (desc.contains(keyword)) return true
-        }
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            if (searchContentDescription(child, keywords)) return true
-        }
-        return false
+    private fun isIgnoredPackage(pkg: String): Boolean {
+        return pkg == MY_PKG ||
+                pkg == "com.android.systemui" ||
+                pkg.contains("inputmethod", ignoreCase = true) ||
+                pkg.contains("keyboard", ignoreCase = true) ||
+                pkg.contains("gboard", ignoreCase = true) ||
+                pkg.contains("swiftkey", ignoreCase = true)
     }
 
     private fun isIgnoredTitle(text: String): Boolean {
@@ -150,7 +153,6 @@ class WhatsAppAccessibilityService : AccessibilityService() {
                 lower == "communities" ||
                 lower == "search" ||
                 lower == "search…" ||
-                lower == "ask meta ai or search" ||
                 lower.startsWith("ask meta ai") ||
                 lower.startsWith("meta ai") ||
                 lower == "unread" ||
@@ -165,6 +167,7 @@ class WhatsAppAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        cancelPendingHide()
         currentActiveContact = null
         FloatingOverlayService.hideOverlay(this)
     }
