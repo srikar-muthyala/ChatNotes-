@@ -124,7 +124,8 @@ class FloatingOverlayService : Service() {
 
     private fun updateBadge() {
         val data = currentData ?: return
-        val count = data.checklist.size
+        // Only count pending (uncompleted) items for the badge
+        val count = data.checklist.count { !it.isDone }
         tvBubbleBadge?.apply {
             if (count > 0) {
                 text = count.toString()
