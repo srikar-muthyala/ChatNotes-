@@ -344,6 +344,20 @@ class FloatingOverlayService : Service() {
             }
         }
 
+        val btnClearAll = pad.findViewById<TextView>(R.id.btnClearAllChecklist)
+        btnClearAll?.setOnClickListener {
+            currentData?.let { data ->
+                if (data.checklist.isNotEmpty()) {
+                    data.checklist.clear()
+                    repository.saveContactData(data)
+                    checklistAdapter?.updateItems(data.checklist)
+                    checkEmptyState()
+                    updateBadge()
+                    updateTabLabels()
+                }
+            }
+        }
+
         // Close button with animated shrink
         pad.findViewById<View>(R.id.btnCloseScratchpad).setOnClickListener {
             closeScratchpad()
@@ -403,12 +417,15 @@ class FloatingOverlayService : Service() {
 
     private fun checkEmptyState() {
         val items = currentData?.checklist ?: emptyList()
+        val btnClearAll = scratchpadView?.findViewById<View>(R.id.btnClearAllChecklist)
         if (items.isEmpty()) {
             rvChecklist?.visibility = View.GONE
             tvEmptyChecklist?.visibility = View.VISIBLE
+            btnClearAll?.visibility = View.GONE
         } else {
             rvChecklist?.visibility = View.VISIBLE
             tvEmptyChecklist?.visibility = View.GONE
+            btnClearAll?.visibility = View.VISIBLE
         }
     }
 
@@ -440,6 +457,7 @@ class FloatingOverlayService : Service() {
             etNewChecklistItem?.setTextColor(Color.parseColor("#E9EDEF"))
             etNewChecklistItem?.setHintTextColor(Color.parseColor("#8696A0"))
             tvEmptyChecklist?.setTextColor(Color.parseColor("#8696A0"))
+            pad.findViewById<TextView>(R.id.btnClearAllChecklist)?.setTextColor(Color.parseColor("#8696A0"))
 
             if (!activeTabIsChecklist) {
                 btnTabChecklist?.setBackgroundResource(R.drawable.bg_tab_pill_inactive_dark)
@@ -462,6 +480,7 @@ class FloatingOverlayService : Service() {
             etNewChecklistItem?.setTextColor(Color.parseColor("#111B21"))
             etNewChecklistItem?.setHintTextColor(Color.parseColor("#667781"))
             tvEmptyChecklist?.setTextColor(Color.parseColor("#667781"))
+            pad.findViewById<TextView>(R.id.btnClearAllChecklist)?.setTextColor(Color.parseColor("#667781"))
 
             if (!activeTabIsChecklist) {
                 btnTabChecklist?.setBackgroundResource(R.drawable.bg_tab_pill_inactive_light)
@@ -609,6 +628,7 @@ class ChecklistAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
         holder.tvText.text = item.text
+        holder.cbDone.setOnCheckedChangeListener(null)
         holder.cbDone.isChecked = item.isDone
 
         if (item.isDone) {
@@ -624,19 +644,25 @@ class ChecklistAdapter(
         )
 
         holder.cbDone.setOnCheckedChangeListener { _, isChecked ->
-            item.isDone = isChecked
-            if (isChecked) {
-                holder.tvText.paintFlags = holder.tvText.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
-                holder.tvText.animate().alpha(0.45f).setDuration(160).start()
-            } else {
-                holder.tvText.paintFlags = holder.tvText.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
-                holder.tvText.animate().alpha(1.0f).setDuration(160).start()
+            val pos = holder.bindingAdapterPosition
+            if (pos != RecyclerView.NO_POSITION && pos < items.size) {
+                items[pos].isDone = isChecked
+                if (isChecked) {
+                    holder.tvText.paintFlags = holder.tvText.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
+                    holder.tvText.animate().alpha(0.45f).setDuration(160).start()
+                } else {
+                    holder.tvText.paintFlags = holder.tvText.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
+                    holder.tvText.animate().alpha(1.0f).setDuration(160).start()
+                }
+                onCheckToggled(pos, isChecked)
             }
-            onCheckToggled(position, isChecked)
         }
 
         holder.btnDelete.setOnClickListener {
-            onDeleteClicked(position)
+            val pos = holder.bindingAdapterPosition
+            if (pos != RecyclerView.NO_POSITION && pos < items.size) {
+                onDeleteClicked(pos)
+            }
         }
     }
 

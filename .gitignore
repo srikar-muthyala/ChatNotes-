@@ -1,6 +1,8 @@
 *.iml
 .gradle
 /local.properties
+graphify-out/
+
 /.idea
 .DS_Store
 /build
@@ -8,3 +10,5 @@
 .externalNativeBuild
 .cxx
 local.properties
+graphify-out/
+
