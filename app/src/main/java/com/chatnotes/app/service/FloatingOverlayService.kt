@@ -312,6 +312,17 @@ class FloatingOverlayService : Service() {
             } else false
         }
 
+        pad.findViewById<TextView>(R.id.btnClearAllChecklist).setOnClickListener {
+            currentData?.let { data ->
+                data.checklist.clear()
+                repository.saveContactData(data)
+                checklistAdapter?.updateItems(data.checklist)
+                checkEmptyState()
+                updateBadge()
+                updateTabLabels()
+            }
+        }
+
         // Freeform Notes
         etFreeformNotes = pad.findViewById(R.id.etFreeformNotes)
         val tvCharCount = pad.findViewById<TextView>(R.id.tvNotesCharCount)
@@ -628,41 +639,20 @@ class ChecklistAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
         holder.tvText.text = item.text
-        holder.cbDone.setOnCheckedChangeListener(null)
-        holder.cbDone.isChecked = item.isDone
-
-        if (item.isDone) {
-            holder.tvText.paintFlags = holder.tvText.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
-            holder.tvText.alpha = 0.45f
-        } else {
-            holder.tvText.paintFlags = holder.tvText.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
-            holder.tvText.alpha = 1.0f
-        }
-
-        holder.tvText.setTextColor(
-            if (isDark) Color.parseColor("#E9EDEF") else Color.parseColor("#111B21")
-        )
-
         holder.cbDone.setOnCheckedChangeListener { _, isChecked ->
-            val pos = holder.bindingAdapterPosition
-            if (pos != RecyclerView.NO_POSITION && pos < items.size) {
-                items[pos].isDone = isChecked
-                if (isChecked) {
-                    holder.tvText.paintFlags = holder.tvText.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
-                    holder.tvText.animate().alpha(0.45f).setDuration(160).start()
-                } else {
-                    holder.tvText.paintFlags = holder.tvText.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
-                    holder.tvText.animate().alpha(1.0f).setDuration(160).start()
-                }
-                onCheckToggled(pos, isChecked)
+            item.isDone = isChecked
+            if (isChecked) {
+                holder.tvText.paintFlags = holder.tvText.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
+                holder.tvText.animate().alpha(0.45f).setDuration(160).start()
+            } else {
+                holder.tvText.paintFlags = holder.tvText.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
+                holder.tvText.animate().alpha(1.0f).setDuration(160).start()
             }
+            onCheckToggled(position, isChecked)
         }
 
         holder.btnDelete.setOnClickListener {
-            val pos = holder.bindingAdapterPosition
-            if (pos != RecyclerView.NO_POSITION && pos < items.size) {
-                onDeleteClicked(pos)
-            }
+            onDeleteClicked(position)
         }
     }
 
