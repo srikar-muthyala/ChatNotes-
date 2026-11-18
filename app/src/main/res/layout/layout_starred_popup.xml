@@ -58,6 +58,7 @@
         android:background="?android:selectableItemBackgroundBorderless"
         android:padding="3dp"
         android:src="@drawable/ic_close"
-        app:tint="#8696A0" />
+        android:tint="@color/text_secondary_dark"
+        app:tint="@color/text_secondary_dark" />
 
 </LinearLayout>

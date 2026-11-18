@@ -28,6 +28,8 @@ import com.chatnotes.app.R
 import com.chatnotes.app.data.ChecklistItem
 import com.chatnotes.app.data.ContactNotesData
 import com.chatnotes.app.data.NotesRepository
+import kotlin.math.max
+import kotlin.math.min
 
 class FloatingOverlayService : Service() {
 
@@ -37,6 +39,7 @@ class FloatingOverlayService : Service() {
     private var bubbleView: View? = null
     private var scratchpadView: View? = null
     private var starredPopupView: View? = null
+    private var isStarredPopupAttached = false
 
     private lateinit var bubbleParams: WindowManager.LayoutParams
     private lateinit var scratchpadParams: WindowManager.LayoutParams
@@ -132,8 +135,8 @@ class FloatingOverlayService : Service() {
     private fun getContactInitial(name: String): String? {
         val trimmed = name.trim()
         for (ch in trimmed) {
-            if (ch.isLetterOrDigit()) {
-                return ch.uppercaseChar().toString()
+            if (Character.isLetterOrDigit(ch)) {
+                return ch.toString().uppercase()
             }
         }
         return null
@@ -282,14 +285,15 @@ class FloatingOverlayService : Service() {
         val isBubbleOnRight = (bubbleParams.x + bubbleSize / 2) >= screenWidth / 2
 
         if (isBubbleOnRight) {
-            starredPopupParams.x = Math.max(16.dpToPx(), bubbleParams.x - popupWidth - 8.dpToPx())
+            starredPopupParams.x = max(16.dpToPx(), bubbleParams.x - popupWidth - 8.dpToPx())
         } else {
-            starredPopupParams.x = Math.min(screenWidth - popupWidth - 16.dpToPx(), bubbleParams.x + bubbleSize + 8.dpToPx())
+            starredPopupParams.x = min(screenWidth - popupWidth - 16.dpToPx(), bubbleParams.x + bubbleSize + 8.dpToPx())
         }
         starredPopupParams.y = bubbleParams.y + (bubbleSize - popupHeight) / 2
 
-        if (!popup.isAttachedToWindow) {
+        if (!isStarredPopupAttached) {
             windowManager.addView(popup, starredPopupParams)
+            isStarredPopupAttached = true
         } else {
             windowManager.updateViewLayout(popup, starredPopupParams)
         }
@@ -313,7 +317,7 @@ class FloatingOverlayService : Service() {
     private fun hideStarredPopup() {
         mainHandler.removeCallbacks(dismissPopupRunnable)
         val popup = starredPopupView ?: return
-        if (popup.isAttachedToWindow && popup.visibility == View.VISIBLE) {
+        if (isStarredPopupAttached && popup.visibility == View.VISIBLE) {
             popup.animate()
                 .alpha(0f)
                 .scaleX(0.8f)
@@ -685,7 +689,7 @@ class FloatingOverlayService : Service() {
         updateScratchpadUI()
         val pad = scratchpadView ?: return
 
-        if (!pad.isAttachedToWindow) {
+        if (pad.isAttachedToWindow == false) {
             windowManager.addView(pad, scratchpadParams)
         }
         pad.visibility = View.VISIBLE
@@ -760,8 +764,9 @@ class FloatingOverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         mainHandler.removeCallbacks(dismissPopupRunnable)
-        if (starredPopupView?.isAttachedToWindow == true) {
+        if (isStarredPopupAttached && starredPopupView != null) {
             windowManager.removeView(starredPopupView)
+            isStarredPopupAttached = false
         }
         if (bubbleView?.isAttachedToWindow == true) {
             windowManager.removeView(bubbleView)
@@ -825,18 +830,15 @@ class ChecklistAdapter(
         )
 
         holder.cbDone.setOnCheckedChangeListener { _, isChecked ->
-            val pos = holder.bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: position
-            if (pos < items.size) {
-                items[pos].isDone = isChecked
-                if (isChecked) {
-                    holder.tvText.paintFlags = holder.tvText.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
-                    holder.tvText.animate().alpha(0.45f).setDuration(160).start()
-                } else {
-                    holder.tvText.paintFlags = holder.tvText.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
-                    holder.tvText.animate().alpha(1.0f).setDuration(160).start()
-                }
-                onCheckToggled(pos, isChecked)
+            item.isDone = isChecked
+            if (isChecked) {
+                holder.tvText.paintFlags = holder.tvText.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
+                holder.tvText.animate().alpha(0.45f).setDuration(160).start()
+            } else {
+                holder.tvText.paintFlags = holder.tvText.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
+                holder.tvText.animate().alpha(1.0f).setDuration(160).start()
             }
+            onCheckToggled(position, isChecked)
         }
 
         // Star button state
@@ -851,31 +853,24 @@ class ChecklistAdapter(
         }
 
         holder.btnStar.setOnClickListener {
-            val pos = holder.bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: position
-            if (pos < items.size) {
-                val currentItem = items[pos]
-                currentItem.isStarred = !currentItem.isStarred
-                if (currentItem.isStarred) {
-                    holder.btnStar.setImageResource(R.drawable.ic_star_filled)
-                    holder.btnStar.setColorFilter(Color.parseColor("#FFB800"))
-                    holder.btnStar.animate().scaleX(1.3f).scaleY(1.3f).setDuration(110).withEndAction {
-                        holder.btnStar.animate().scaleX(1.0f).scaleY(1.0f).setDuration(90).start()
-                    }.start()
-                } else {
-                    holder.btnStar.setImageResource(R.drawable.ic_star_outline)
-                    holder.btnStar.setColorFilter(
-                        if (isDark) Color.parseColor("#8696A0") else Color.parseColor("#667781")
-                    )
-                }
-                onStarToggled(pos, currentItem.isStarred)
+            item.isStarred = !item.isStarred
+            if (item.isStarred) {
+                holder.btnStar.setImageResource(R.drawable.ic_star_filled)
+                holder.btnStar.setColorFilter(Color.parseColor("#FFB800"))
+                holder.btnStar.animate().scaleX(1.3f).scaleY(1.3f).setDuration(110).withEndAction {
+                    holder.btnStar.animate().scaleX(1.0f).scaleY(1.0f).setDuration(90).start()
+                }.start()
+            } else {
+                holder.btnStar.setImageResource(R.drawable.ic_star_outline)
+                holder.btnStar.setColorFilter(
+                    if (isDark) Color.parseColor("#8696A0") else Color.parseColor("#667781")
+                )
             }
+            onStarToggled(position, item.isStarred)
         }
 
         holder.btnDelete.setOnClickListener {
-            val pos = holder.bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: position
-            if (pos < items.size) {
-                onDeleteClicked(pos)
-            }
+            onDeleteClicked(position)
         }
     }
 
