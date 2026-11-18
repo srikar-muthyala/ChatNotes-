@@ -7,7 +7,7 @@
     android:clickable="true"
     android:focusable="true">
 
-    <!-- Circle Bubble Button -->
+    <!-- Circle Bubble Button (Fallback Icon) -->
     <ImageView
         android:id="@+id/ivBubbleIcon"
         android:layout_width="50dp"
@@ -19,7 +19,21 @@
         android:src="@drawable/ic_note"
         app:tint="#FFFFFF" />
 
-    <!-- Badge Counter for Checklist Items -->
+    <!-- Contact Initial / Monogram Letter -->
+    <TextView
+        android:id="@+id/tvBubbleInitial"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_floating_bubble"
+        android:elevation="8dp"
+        android:gravity="center"
+        android:textColor="#FFFFFF"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+    <!-- Badge Counter for Checklist Items (Top Right) -->
     <TextView
         android:id="@+id/tvBubbleBadge"
         android:layout_width="20dp"
@@ -34,6 +48,20 @@
         android:textColor="#121B22"
         android:textSize="10sp"
         android:textStyle="bold"
+        android:visibility="gone" />
+
+    <!-- Starred Items Badge Indicator (Bottom Left) -->
+    <ImageView
+        android:id="@+id/ivBubbleStarBadge"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="2dp"
+        android:layout_marginBottom="2dp"
+        android:background="@drawable/bg_badge"
+        android:elevation="10dp"
+        android:padding="2dp"
+        android:src="@drawable/ic_star_filled"
         android:visibility="gone" />
 
 </FrameLayout>

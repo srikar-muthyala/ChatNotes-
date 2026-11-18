@@ -24,7 +24,8 @@ Ever open a chat on WhatsApp with a friend, client, or colleague and completely 
 ## ✨ The Solution: ChatNotes
 **ChatNotes** is a lightweight Android companion utility that detects who you're chatting with in real-time and floats a mini private scratchpad directly over WhatsApp:
 
-- **👤 Unique Per Contact**: Each contact gets their own independent checklist and memo pad. Data never mixes between chats.
+- **👤 Unique Per Contact with Monogram**: Automatically loads each contact's notes and shows their letter initial on the bubble.
+- **⭐ Starred Talking Points with In-Chat Popups**: Star crucial items; ChatNotes pops up an alert pill directly from the widget as soon as you open their chat.
 - **☑️ Interactive Checklist**: Write down talking points and tick them off as you discuss them in the chat.
 - **📝 Freeform Notes**: Store addresses, links, bank details, or general background info about that person.
 - **🫧 Draggable Floating Bubble**: Floats like a Messenger chat head and smoothly glides/snaps to the screen edge.

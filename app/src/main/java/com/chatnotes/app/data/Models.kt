@@ -3,7 +3,8 @@ package com.chatnotes.app.data
 data class ChecklistItem(
     val id: String = System.currentTimeMillis().toString(),
     var text: String,
-    var isDone: Boolean = false
+    var isDone: Boolean = false,
+    var isStarred: Boolean = false
 )
 
 data class ContactNotesData(

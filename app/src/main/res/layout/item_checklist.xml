@@ -28,6 +28,14 @@
         android:textSize="13sp" />
 
     <ImageView
+        android:id="@+id/btnStarItem"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:background="?android:selectableItemBackgroundBorderless"
+        android:padding="6dp"
+        android:src="@drawable/ic_star_outline" />
+
+    <ImageView
         android:id="@+id/btnDeleteItem"
         android:layout_width="32dp"
         android:layout_height="32dp"
