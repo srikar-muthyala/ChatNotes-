@@ -81,6 +81,11 @@ class FloatingOverlayService : Service() {
     private var lastChatSessionContact: String? = null
     private var hasShownStarredInCurrentSession: Boolean = false
 
+    private var lastDeletedItem: ChecklistItem? = null
+    private var lastDeletedPosition: Int = -1
+    private var lastDeletedItemsList: List<ChecklistItem>? = null
+    private val dismissUndoRunnable = Runnable { hideUndoBanner() }
+
     // Bubble UI elements
     private var ivBubbleIcon: ImageView? = null
     private var tvBubbleInitial: TextView? = null
@@ -1069,19 +1074,52 @@ class FloatingOverlayService : Service() {
             onDeleteClicked = { index ->
                 currentData?.let { data ->
                     if (index in data.checklist.indices) {
-                        data.checklist.removeAt(index)
+                        val removed = data.checklist.removeAt(index)
                         repository.saveContactData(data)
                         checklistAdapter?.updateItems(data.checklist)
                         checkEmptyState()
                         updateBadge()
                         updateBubbleStarBadge()
                         updateTabLabels()
+                        showUndoDeleteBanner(removed, index)
                     }
                 }
             }
         )
         rvChecklist?.adapter = checklistAdapter
         rvChecklist?.let { setupChecklistSwipeGestures(it) }
+
+        val btnUndo = pad.findViewById<TextView>(R.id.btnUndoDelete)
+        btnUndo?.setOnClickListener {
+            btnUndo.bounceClick {
+                val data = currentData ?: return@bounceClick
+                var restoredPosition = -1
+
+                if (lastDeletedItemsList != null) {
+                    data.checklist.clear()
+                    data.checklist.addAll(lastDeletedItemsList!!)
+                    lastDeletedItemsList = null
+                } else if (lastDeletedItem != null) {
+                    val targetPos = lastDeletedPosition.coerceIn(0, data.checklist.size)
+                    data.checklist.add(targetPos, lastDeletedItem!!)
+                    restoredPosition = targetPos
+                    lastDeletedItem = null
+                    lastDeletedPosition = -1
+                }
+
+                repository.saveContactData(data)
+                checklistAdapter?.updateItems(data.checklist)
+                checkEmptyState()
+                updateBadge()
+                updateBubbleStarBadge()
+                updateTabLabels()
+                hideUndoBanner()
+
+                if (restoredPosition >= 0) {
+                    rvChecklist?.smoothScrollToPosition(restoredPosition)
+                }
+            }
+        }
 
         val addAction = {
             val text = etNewChecklistItem?.text?.toString()?.trim() ?: ""
@@ -1114,6 +1152,7 @@ class FloatingOverlayService : Service() {
             btnClear.bounceClick {
                 currentData?.let { data ->
                     if (data.checklist.isNotEmpty()) {
+                        val backedUpList = ArrayList(data.checklist)
                         data.checklist.clear()
                         repository.saveContactData(data)
                         checklistAdapter?.updateItems(data.checklist)
@@ -1121,6 +1160,7 @@ class FloatingOverlayService : Service() {
                         updateBadge()
                         updateBubbleStarBadge()
                         updateTabLabels()
+                        showUndoClearAllBanner(backedUpList)
                     }
                 }
             }
@@ -1217,7 +1257,7 @@ class FloatingOverlayService : Service() {
                     updateTabLabels()
                 } else if (direction == ItemTouchHelper.LEFT) {
                     // Swipe Left: Delete item
-                    data.checklist.removeAt(position)
+                    val removed = data.checklist.removeAt(position)
                     repository.saveContactData(data)
                     checklistAdapter?.updateItems(data.checklist)
                     viewHolder.itemView.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
@@ -1225,6 +1265,7 @@ class FloatingOverlayService : Service() {
                     updateBadge()
                     updateBubbleStarBadge()
                     updateTabLabels()
+                    showUndoDeleteBanner(removed, position)
                 }
             }
 
@@ -1297,8 +1338,80 @@ class FloatingOverlayService : Service() {
         ItemTouchHelper(swipeHandler).attachToRecyclerView(rv)
     }
 
+    private fun showUndoDeleteBanner(item: ChecklistItem, position: Int) {
+        lastDeletedItem = item
+        lastDeletedPosition = position
+        lastDeletedItemsList = null
+
+        val pad = scratchpadView ?: return
+        val banner = pad.findViewById<View>(R.id.layoutUndoBanner) ?: return
+        val tvMsg = pad.findViewById<TextView>(R.id.tvUndoMessage) ?: return
+
+        mainHandler.removeCallbacks(dismissUndoRunnable)
+
+        val snippet = if (item.text.length > 20) item.text.take(18) + "…" else item.text
+        tvMsg.text = "Deleted \"$snippet\""
+
+        banner.visibility = View.VISIBLE
+        banner.alpha = 0f
+        banner.translationY = 24.dpToPx().toFloat()
+        banner.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(220)
+            .setInterpolator(OvershootInterpolator(1.1f))
+            .start()
+
+        mainHandler.postDelayed(dismissUndoRunnable, 4500L)
+    }
+
+    private fun showUndoClearAllBanner(items: List<ChecklistItem>) {
+        lastDeletedItem = null
+        lastDeletedPosition = -1
+        lastDeletedItemsList = items
+
+        val pad = scratchpadView ?: return
+        val banner = pad.findViewById<View>(R.id.layoutUndoBanner) ?: return
+        val tvMsg = pad.findViewById<TextView>(R.id.tvUndoMessage) ?: return
+
+        mainHandler.removeCallbacks(dismissUndoRunnable)
+
+        tvMsg.text = "Cleared ${items.size} item${if (items.size > 1) "s" else ""}"
+
+        banner.visibility = View.VISIBLE
+        banner.alpha = 0f
+        banner.translationY = 24.dpToPx().toFloat()
+        banner.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(220)
+            .setInterpolator(OvershootInterpolator(1.1f))
+            .start()
+
+        mainHandler.postDelayed(dismissUndoRunnable, 4500L)
+    }
+
+    private fun hideUndoBanner() {
+        mainHandler.removeCallbacks(dismissUndoRunnable)
+        val pad = scratchpadView ?: return
+        val banner = pad.findViewById<View>(R.id.layoutUndoBanner) ?: return
+        if (banner.visibility == View.VISIBLE) {
+            banner.animate()
+                .alpha(0f)
+                .translationY(24.dpToPx().toFloat())
+                .setDuration(160)
+                .setInterpolator(AccelerateInterpolator())
+                .withEndAction {
+                    banner.visibility = View.GONE
+                    banner.translationY = 0f
+                }
+                .start()
+        }
+    }
+
     private fun switchTabWithAnimation(showChecklist: Boolean) {
         val isDark = repository.isDarkTheme()
+        hideUndoBanner()
         if (showChecklist) {
             btnTabChecklist?.setBackgroundResource(R.drawable.bg_tab_pill_active)
             btnTabChecklist?.setTextColor(Color.WHITE)
@@ -1463,6 +1576,7 @@ class FloatingOverlayService : Service() {
     }
 
     private fun closeScratchpad() {
+        hideUndoBanner()
         val pad = scratchpadView ?: return
         pad.animate()
             .alpha(0f)
@@ -1495,6 +1609,11 @@ class FloatingOverlayService : Service() {
         isScratchpadOpen = false
         lastChatSessionContact = null
         hasShownStarredInCurrentSession = false
+        lastDeletedItem = null
+        lastDeletedPosition = -1
+        lastDeletedItemsList = null
+        mainHandler.removeCallbacks(dismissUndoRunnable)
+        hideUndoBanner()
         mainHandler.removeCallbacks(dismissPopupRunnable)
         mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
         mainHandler.removeCallbacks(dismissAutoCaptureRunnable)
@@ -1534,6 +1653,7 @@ class FloatingOverlayService : Service() {
         clipboardManager?.removePrimaryClipChangedListener(clipChangedListener)
         mainHandler.removeCallbacks(dismissPopupRunnable)
         mainHandler.removeCallbacks(dismissAutoCaptureRunnable)
+        mainHandler.removeCallbacks(dismissUndoRunnable)
         if (isStarredPopupAttached && starredPopupView != null) {
             windowManager.removeView(starredPopupView)
             isStarredPopupAttached = false
