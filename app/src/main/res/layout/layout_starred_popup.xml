@@ -6,7 +6,7 @@
     android:layout_height="wrap_content"
     android:background="@drawable/bg_starred_popup"
     android:clickable="true"
-    android:elevation="12dp"
+    android:elevation="14dp"
     android:focusable="true"
     android:gravity="center_vertical"
     android:orientation="horizontal"
@@ -15,34 +15,63 @@
     android:paddingEnd="8dp"
     android:paddingBottom="7dp">
 
+    <!-- Gold Star Icon -->
     <ImageView
         android:id="@+id/ivStarredIcon"
         android:layout_width="18dp"
         android:layout_height="18dp"
         android:src="@drawable/ic_star_filled" />
 
+    <!-- Center Content Column -->
     <LinearLayout
+        android:id="@+id/layoutStarredContent"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
         android:layout_marginEnd="6dp"
         android:orientation="vertical">
 
-        <TextView
+        <!-- Header Row with Title and Multi-Star Ticker -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="STARRED NOTE"
-            android:textColor="#FFB800"
-            android:textSize="9sp"
-            android:textStyle="bold" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
+            <TextView
+                android:id="@+id/tvStarredHeader"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="STARRED NOTE"
+                android:textColor="#FFB800"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvStarredTicker"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_badge"
+                android:paddingStart="5dp"
+                android:paddingTop="1dp"
+                android:paddingEnd="5dp"
+                android:paddingBottom="1dp"
+                android:text="1/3"
+                android:textColor="#FFFFFF"
+                android:textSize="8.5sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- Starred Note Text -->
         <TextView
             android:id="@+id/tvStarredValue"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="1dp"
             android:ellipsize="end"
-            android:maxWidth="190dp"
+            android:maxWidth="170dp"
             android:maxLines="2"
             android:text="Remember to mention budget"
             android:textColor="#FFFFFF"
@@ -50,15 +79,48 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <ImageView
-        android:id="@+id/btnDismissStarredPopup"
-        android:layout_width="22dp"
-        android:layout_height="22dp"
-        android:layout_marginStart="4dp"
-        android:background="?android:selectableItemBackgroundBorderless"
-        android:padding="3dp"
-        android:src="@drawable/ic_close"
-        android:tint="@color/text_secondary_dark"
-        app:tint="@color/text_secondary_dark" />
+    <!-- Action Buttons Row -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <!-- Next Starred Item Button (visible when multi-star > 1) -->
+        <ImageView
+            android:id="@+id/btnNextStarred"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_marginEnd="2dp"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:padding="3dp"
+            android:src="@drawable/ic_chevron_right"
+            android:tint="#8696A0"
+            android:visibility="gone"
+            app:tint="#8696A0" />
+
+        <!-- One-Tap Copy to Message Bar Button -->
+        <ImageView
+            android:id="@+id/btnCopyStarred"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_marginEnd="2dp"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:padding="3.5dp"
+            android:src="@drawable/ic_copy"
+            android:tint="#8696A0"
+            app:tint="#8696A0" />
+
+        <!-- Dismiss Close Button -->
+        <ImageView
+            android:id="@+id/btnDismissStarredPopup"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:padding="3dp"
+            android:src="@drawable/ic_close"
+            android:tint="#8696A0"
+            app:tint="#8696A0" />
+    </LinearLayout>
 
 </LinearLayout>

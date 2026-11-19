@@ -5,6 +5,8 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -28,6 +30,7 @@ import com.chatnotes.app.R
 import com.chatnotes.app.data.ChecklistItem
 import com.chatnotes.app.data.ContactNotesData
 import com.chatnotes.app.data.NotesRepository
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -51,6 +54,10 @@ class FloatingOverlayService : Service() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val dismissPopupRunnable = Runnable { hideStarredPopup() }
+    private val resetCopyFeedbackRunnable = Runnable { resetCopyFeedback() }
+
+    private var activeStarredItems: List<ChecklistItem> = emptyList()
+    private var currentStarredIndex: Int = 0
 
     // Bubble UI elements
     private var ivBubbleIcon: ImageView? = null
@@ -245,31 +252,187 @@ class FloatingOverlayService : Service() {
             gravity = Gravity.TOP or Gravity.START
         }
 
-        starredPopupView?.setOnClickListener {
+        val popup = starredPopupView ?: return
+        val btnDismiss = popup.findViewById<ImageView>(R.id.btnDismissStarredPopup)
+        val btnCopy = popup.findViewById<ImageView>(R.id.btnCopyStarred)
+        val btnNext = popup.findViewById<ImageView>(R.id.btnNextStarred)
+        val tvTicker = popup.findViewById<TextView>(R.id.tvStarredTicker)
+
+        btnDismiss?.setOnClickListener {
+            btnDismiss.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             hideStarredPopup()
-            openScratchpad()
         }
 
-        starredPopupView?.findViewById<View>(R.id.btnDismissStarredPopup)?.setOnClickListener {
-            hideStarredPopup()
+        btnCopy?.setOnClickListener {
+            val item = activeStarredItems.getOrNull(currentStarredIndex)
+            val textToCopy = item?.text ?: popup.findViewById<TextView>(R.id.tvStarredValue)?.text?.toString() ?: ""
+            if (textToCopy.isNotBlank()) {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("ChatNotes Starred", textToCopy)
+                clipboard.setPrimaryClip(clip)
+
+                btnCopy.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                btnCopy.setImageResource(R.drawable.ic_check)
+                btnCopy.setColorFilter(Color.parseColor("#25D366"))
+                btnCopy.animate().scaleX(1.3f).scaleY(1.3f).setDuration(120).withEndAction {
+                    btnCopy.animate().scaleX(1.0f).scaleY(1.0f).setDuration(100).start()
+                }.start()
+
+                val tvHeader = popup.findViewById<TextView>(R.id.tvStarredHeader)
+                tvHeader?.text = "COPIED TO MESSAGE BAR!"
+                tvHeader?.setTextColor(Color.parseColor("#25D366"))
+
+                mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
+                mainHandler.postDelayed(resetCopyFeedbackRunnable, 2000L)
+
+                mainHandler.removeCallbacks(dismissPopupRunnable)
+                mainHandler.postDelayed(dismissPopupRunnable, 4500L)
+            }
+        }
+
+        val cycleAction = View.OnClickListener {
+            btnNext?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            cycleNextStarredItem()
+        }
+        btnNext?.setOnClickListener(cycleAction)
+        tvTicker?.setOnClickListener(cycleAction)
+
+        setupStarredPopupTouchListener()
+    }
+
+    private fun setupStarredPopupTouchListener() {
+        val popup = starredPopupView ?: return
+        var touchDownX = 0f
+        var touchDownY = 0f
+        var isSwiping = false
+
+        popup.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchDownX = event.rawX
+                    touchDownY = event.rawY
+                    isSwiping = false
+                    mainHandler.removeCallbacks(dismissPopupRunnable)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - touchDownX
+                    val dy = event.rawY - touchDownY
+                    if (abs(dx) > 12.dpToPx() && abs(dx) > abs(dy) * 1.3f) {
+                        isSwiping = true
+                        v.translationX = dx * 0.45f
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val dx = event.rawX - touchDownX
+                    val dy = event.rawY - touchDownY
+                    val screenWidth = resources.displayMetrics.widthPixels
+                    val isBubbleOnRight = (bubbleParams.x + 25.dpToPx()) >= screenWidth / 2
+                    val threshold = 32.dpToPx()
+
+                    // Swipe towards the docked screen edge/bubble dismisses (Flick-to-Dismiss)
+                    val isDismissSwipe = if (isBubbleOnRight) (dx > threshold) else (dx < -threshold)
+                    // Swipe away from the bubble cycles to next starred note
+                    val isCycleSwipe = if (isBubbleOnRight) (dx < -threshold) else (dx > threshold)
+
+                    v.animate().translationX(0f).setDuration(140).start()
+
+                    if (isDismissSwipe) {
+                        v.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                        hideStarredPopup()
+                    } else if (isCycleSwipe && activeStarredItems.size > 1) {
+                        v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                        cycleNextStarredItem()
+                    } else if (!isSwiping && abs(dx) < 10.dpToPx() && abs(dy) < 10.dpToPx()) {
+                        // Regular tap on popup body: open scratchpad
+                        v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                        hideStarredPopup()
+                        openScratchpad()
+                    } else {
+                        mainHandler.postDelayed(dismissPopupRunnable, 5000L)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    v.animate().translationX(0f).setDuration(140).start()
+                    mainHandler.postDelayed(dismissPopupRunnable, 5000L)
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun resetCopyFeedback() {
+        val popup = starredPopupView ?: return
+        val tvHeader = popup.findViewById<TextView>(R.id.tvStarredHeader) ?: return
+        val btnCopy = popup.findViewById<ImageView>(R.id.btnCopyStarred) ?: return
+        tvHeader.text = "STARRED NOTE"
+        tvHeader.setTextColor(Color.parseColor("#FFB800"))
+        btnCopy.setImageResource(R.drawable.ic_copy)
+        btnCopy.setColorFilter(Color.parseColor("#8696A0"))
+    }
+
+    private fun cycleNextStarredItem() {
+        if (activeStarredItems.size <= 1) return
+        currentStarredIndex = (currentStarredIndex + 1) % activeStarredItems.size
+        updateStarredPopupContent(animated = true)
+        mainHandler.removeCallbacks(dismissPopupRunnable)
+        mainHandler.postDelayed(dismissPopupRunnable, 6000L)
+    }
+
+    private fun updateStarredPopupContent(animated: Boolean) {
+        val popup = starredPopupView ?: return
+        val item = activeStarredItems.getOrNull(currentStarredIndex) ?: return
+        val tvValue = popup.findViewById<TextView>(R.id.tvStarredValue)
+        val tvTicker = popup.findViewById<TextView>(R.id.tvStarredTicker)
+        val btnNext = popup.findViewById<ImageView>(R.id.btnNextStarred)
+
+        if (activeStarredItems.size > 1) {
+            tvTicker?.text = "${currentStarredIndex + 1}/${activeStarredItems.size}"
+            tvTicker?.visibility = View.VISIBLE
+            btnNext?.visibility = View.VISIBLE
+        } else {
+            tvTicker?.visibility = View.GONE
+            btnNext?.visibility = View.GONE
+        }
+
+        if (animated) {
+            tvValue?.animate()
+                ?.alpha(0f)
+                ?.translationY(-6.dpToPx().toFloat())
+                ?.setDuration(90)
+                ?.withEndAction {
+                    tvValue.text = item.text
+                    tvValue.translationY = 6.dpToPx().toFloat()
+                    tvValue.animate()
+                        ?.alpha(1f)
+                        ?.translationY(0f)
+                        ?.setDuration(130)
+                        ?.start()
+                }?.start()
+        } else {
+            tvValue?.text = item.text
+            tvValue?.alpha = 1f
+            tvValue?.translationY = 0f
         }
     }
 
     private fun showStarredPopupIfNeeded() {
         val data = currentData ?: return
-        // Prioritize pending starred item, fallback to completed starred item
-        val starredPending = data.checklist.filter { it.isStarred && !it.isDone }
-        val starredItem = starredPending.firstOrNull() ?: data.checklist.firstOrNull { it.isStarred }
+        val pendingStarred = data.checklist.filter { it.isStarred && !it.isDone }
+        activeStarredItems = if (pendingStarred.isNotEmpty()) pendingStarred else data.checklist.filter { it.isStarred }
 
-        if (starredItem != null && starredItem.text.isNotBlank()) {
-            val suffix = if (starredPending.size > 1) " (+${starredPending.size - 1} more)" else ""
-            showStarredPopup(starredItem.text + suffix)
+        if (activeStarredItems.isNotEmpty()) {
+            currentStarredIndex = 0
+            showStarredPopup()
         } else {
             hideStarredPopup()
         }
     }
 
-    private fun showStarredPopup(text: String) {
+    private fun showStarredPopup() {
         val popup = starredPopupView ?: return
         val bubble = bubbleView ?: return
         if (bubble.visibility != View.VISIBLE) return
@@ -281,12 +444,12 @@ class FloatingOverlayService : Service() {
         }
 
         mainHandler.removeCallbacks(dismissPopupRunnable)
-
-        popup.findViewById<TextView>(R.id.tvStarredValue)?.text = text
+        resetCopyFeedback()
+        updateStarredPopupContent(animated = false)
 
         val screenWidth = resources.displayMetrics.widthPixels
         popup.measure(
-            View.MeasureSpec.makeMeasureSpec((screenWidth * 0.72).toInt(), View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec((screenWidth * 0.76).toInt(), View.MeasureSpec.AT_MOST),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
         )
         val popupWidth = popup.measuredWidth
@@ -296,10 +459,10 @@ class FloatingOverlayService : Service() {
         val isBubbleOnRight = (bubbleParams.x + bubbleSize / 2) >= screenWidth / 2
 
         if (isBubbleOnRight) {
-            starredPopupParams.x = max(16.dpToPx(), bubbleParams.x - popupWidth - 8.dpToPx())
+            starredPopupParams.x = max(12.dpToPx(), bubbleParams.x - popupWidth - 8.dpToPx())
             popup.pivotX = popupWidth.toFloat()
         } else {
-            starredPopupParams.x = min(screenWidth - popupWidth - 16.dpToPx(), bubbleParams.x + bubbleSize + 8.dpToPx())
+            starredPopupParams.x = min(screenWidth - popupWidth - 12.dpToPx(), bubbleParams.x + bubbleSize + 8.dpToPx())
             popup.pivotX = 0f
         }
         starredPopupParams.y = bubbleParams.y + (bubbleSize - popupHeight) / 2
@@ -324,6 +487,7 @@ class FloatingOverlayService : Service() {
         }
 
         popup.visibility = View.VISIBLE
+        popup.translationX = 0f
         popup.alpha = 0f
         popup.scaleX = 0.0f
         popup.scaleY = 0.0f
@@ -341,6 +505,7 @@ class FloatingOverlayService : Service() {
 
     private fun hideStarredPopup() {
         mainHandler.removeCallbacks(dismissPopupRunnable)
+        mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
         val popup = starredPopupView ?: return
         if (isStarredPopupAttached && popup.visibility == View.VISIBLE) {
             popup.animate()
@@ -351,6 +516,7 @@ class FloatingOverlayService : Service() {
                 .setInterpolator(AccelerateInterpolator())
                 .withEndAction {
                     popup.visibility = View.GONE
+                    popup.translationX = 0f
                 }
                 .start()
         }
@@ -765,6 +931,7 @@ class FloatingOverlayService : Service() {
     private fun hideAll() {
         isScratchpadOpen = false
         mainHandler.removeCallbacks(dismissPopupRunnable)
+        mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
         starredPopupView?.animate()?.cancel()
         starredPopupView?.visibility = View.GONE
         bubbleView?.visibility = View.GONE
