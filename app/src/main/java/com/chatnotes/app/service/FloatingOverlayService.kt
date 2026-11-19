@@ -9,7 +9,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -24,6 +26,8 @@ import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.*
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.chatnotes.app.R
@@ -55,6 +59,8 @@ class FloatingOverlayService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val dismissPopupRunnable = Runnable { hideStarredPopup() }
     private val resetCopyFeedbackRunnable = Runnable { resetCopyFeedback() }
+    private val parkBubbleRunnable = Runnable { parkBubbleToEdge() }
+    private var isBubbleParked = false
 
     private var activeStarredItems: List<ChecklistItem> = emptyList()
     private var currentStarredIndex: Int = 0
@@ -82,6 +88,10 @@ class FloatingOverlayService : Service() {
         const val EXTRA_CONTACT = "extra_contact_name"
         private const val CHANNEL_ID = "chatnotes_overlay_channel"
         private const val NOTIFICATION_ID = 1001
+        private const val PREFS_NAME = "chatnotes_overlay_prefs"
+        private const val PREF_BUBBLE_Y = "bubble_y_pos"
+        private const val DEFAULT_BUBBLE_Y = 350
+        private const val PARK_INACTIVITY_DELAY_MS = 4000L
 
         @Volatile
         var isScratchpadOpen = false
@@ -216,6 +226,12 @@ class FloatingOverlayService : Service() {
         }
 
         val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val savedY = prefs.getInt(PREF_BUBBLE_Y, DEFAULT_BUBBLE_Y)
+        val minY = 50.dpToPx()
+        val maxY = screenHeight - 120.dpToPx()
+
         bubbleParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -225,7 +241,7 @@ class FloatingOverlayService : Service() {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = screenWidth - 180
-            y = 350
+            y = savedY.coerceIn(minY, maxY)
         }
 
         setupBubbleTouchListener()
@@ -534,22 +550,30 @@ class FloatingOverlayService : Service() {
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     hideStarredPopup()
+                    mainHandler.removeCallbacks(parkBubbleRunnable)
+                    if (isBubbleParked) {
+                        unparkBubble(animated = true)
+                    }
                     initialX = bubbleParams.x
                     initialY = bubbleParams.y
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
                     isClick = true
-                    view.animate().scaleX(1.15f).scaleY(1.15f).setDuration(120).start()
+                    view.animate().scaleX(1.15f).scaleY(1.15f).alpha(1.0f).setDuration(120).start()
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (event.rawX - initialTouchX).toInt()
                     val dy = (event.rawY - initialTouchY).toInt()
-                    if (Math.abs(dx) > 12 || Math.abs(dy) > 12) {
+                    if (abs(dx) > 10 || abs(dy) > 10) {
                         isClick = false
                     }
                     bubbleParams.x = initialX + dx
-                    bubbleParams.y = initialY + dy
+                    val screenHeight = resources.displayMetrics.heightPixels
+                    val minY = 50.dpToPx()
+                    val maxY = screenHeight - 120.dpToPx()
+                    bubbleParams.y = (initialY + dy).coerceIn(minY, maxY)
+
                     if (view.isAttachedToWindow) {
                         windowManager.updateViewLayout(view, bubbleParams)
                     }
@@ -572,11 +596,58 @@ class FloatingOverlayService : Service() {
     private fun snapBubbleToEdge() {
         val view = bubbleView ?: return
         val screenWidth = resources.displayMetrics.widthPixels
+        val bubbleWidth = if (view.width > 0) view.width else 50.dpToPx()
         val currentX = bubbleParams.x
-        val targetX = if (currentX + (view.width / 2) < screenWidth / 2) 20 else (screenWidth - view.width - 20)
+        val targetX = if (currentX + (bubbleWidth / 2) < screenWidth / 2) 16.dpToPx() else (screenWidth - bubbleWidth - 16.dpToPx())
+
+        // Smart Y-Position Memory: Save vertical height across sessions
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putInt(PREF_BUBBLE_Y, bubbleParams.y).apply()
 
         val animator = ValueAnimator.ofInt(currentX, targetX)
-        animator.duration = 250
+        animator.duration = 240
+        animator.interpolator = DecelerateInterpolator()
+        animator.addUpdateListener { animation ->
+            bubbleParams.x = animation.animatedValue as Int
+            if (view.isAttachedToWindow) {
+                windowManager.updateViewLayout(view, bubbleParams)
+            }
+        }
+        animator.addListener(object : android.animation.AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: android.animation.Animator) {
+                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                scheduleBubbleParking()
+            }
+        })
+        animator.start()
+    }
+
+    private fun scheduleBubbleParking() {
+        mainHandler.removeCallbacks(parkBubbleRunnable)
+        if (!isScratchpadOpen && bubbleView?.visibility == View.VISIBLE && !isBubbleParked) {
+            mainHandler.postDelayed(parkBubbleRunnable, PARK_INACTIVITY_DELAY_MS)
+        }
+    }
+
+    private fun parkBubbleToEdge() {
+        val view = bubbleView ?: return
+        if (isScratchpadOpen || !view.isAttachedToWindow || view.visibility != View.VISIBLE || isBubbleParked) return
+        if (starredPopupView?.visibility == View.VISIBLE) {
+            scheduleBubbleParking()
+            return
+        }
+
+        isBubbleParked = true
+        val screenWidth = resources.displayMetrics.widthPixels
+        val bubbleWidth = if (view.width > 0) view.width else 50.dpToPx()
+        val isBubbleOnRight = (bubbleParams.x + bubbleWidth / 2) >= screenWidth / 2
+
+        val parkOffset = (bubbleWidth * 0.40f).toInt() // 40% into screen margin
+        val currentX = bubbleParams.x
+        val targetX = if (isBubbleOnRight) (screenWidth - bubbleWidth + parkOffset) else (-parkOffset)
+
+        val animator = ValueAnimator.ofInt(currentX, targetX)
+        animator.duration = 320
         animator.interpolator = DecelerateInterpolator()
         animator.addUpdateListener { animation ->
             bubbleParams.x = animation.animatedValue as Int
@@ -585,6 +656,48 @@ class FloatingOverlayService : Service() {
             }
         }
         animator.start()
+
+        view.animate().alpha(0.72f).scaleX(0.92f).scaleY(0.92f).setDuration(320).start()
+    }
+
+    private fun unparkBubble(animated: Boolean = true) {
+        mainHandler.removeCallbacks(parkBubbleRunnable)
+        val view = bubbleView ?: return
+        if (!isBubbleParked) {
+            scheduleBubbleParking()
+            return
+        }
+
+        isBubbleParked = false
+        val screenWidth = resources.displayMetrics.widthPixels
+        val bubbleWidth = if (view.width > 0) view.width else 50.dpToPx()
+        val isBubbleOnRight = (bubbleParams.x + bubbleWidth / 2) >= screenWidth / 2
+        val currentX = bubbleParams.x
+        val targetX = if (isBubbleOnRight) (screenWidth - bubbleWidth - 16.dpToPx()) else 16.dpToPx()
+
+        if (animated) {
+            val animator = ValueAnimator.ofInt(currentX, targetX)
+            animator.duration = 220
+            animator.interpolator = OvershootInterpolator(1.1f)
+            animator.addUpdateListener { animation ->
+                bubbleParams.x = animation.animatedValue as Int
+                if (view.isAttachedToWindow) {
+                    windowManager.updateViewLayout(view, bubbleParams)
+                }
+            }
+            animator.start()
+            view.animate().alpha(1.0f).scaleX(1.0f).scaleY(1.0f).setDuration(220).start()
+        } else {
+            bubbleParams.x = targetX
+            if (view.isAttachedToWindow) {
+                windowManager.updateViewLayout(view, bubbleParams)
+            }
+            view.alpha = 1.0f
+            view.scaleX = 1.0f
+            view.scaleY = 1.0f
+        }
+
+        scheduleBubbleParking()
     }
 
     private fun createScratchpadView() {
@@ -653,6 +766,7 @@ class FloatingOverlayService : Service() {
             }
         )
         rvChecklist?.adapter = checklistAdapter
+        rvChecklist?.let { setupChecklistSwipeGestures(it) }
 
         val addAction = {
             val text = etNewChecklistItem?.text?.toString()?.trim() ?: ""
@@ -737,6 +851,112 @@ class FloatingOverlayService : Service() {
         }
 
         applyTheme(repository.isDarkTheme())
+    }
+
+    private fun setupChecklistSwipeGestures(rv: RecyclerView) {
+        val swipeHandler = object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT) {
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean = false
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                val position = viewHolder.adapterPosition
+                if (position == RecyclerView.NO_POSITION) return
+                val data = currentData ?: return
+                if (position !in data.checklist.indices) return
+
+                if (direction == ItemTouchHelper.RIGHT) {
+                    // Swipe Right: Toggle completed
+                    val item = data.checklist[position]
+                    item.isDone = !item.isDone
+                    repository.saveContactData(data)
+                    viewHolder.itemView.translationX = 0f
+                    checklistAdapter?.notifyItemChanged(position)
+                    viewHolder.itemView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    updateBadge()
+                    updateTabLabels()
+                } else if (direction == ItemTouchHelper.LEFT) {
+                    // Swipe Left: Delete item
+                    data.checklist.removeAt(position)
+                    repository.saveContactData(data)
+                    checklistAdapter?.updateItems(data.checklist)
+                    viewHolder.itemView.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                    checkEmptyState()
+                    updateBadge()
+                    updateBubbleStarBadge()
+                    updateTabLabels()
+                }
+            }
+
+            override fun onChildDraw(
+                c: Canvas,
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                dX: Float,
+                dY: Float,
+                actionState: Int,
+                isCurrentlyActive: Boolean
+            ) {
+                val itemView = viewHolder.itemView
+                val background = Paint()
+
+                if (dX > 0) {
+                    // Swiping Right: Green background for complete toggle
+                    background.color = Color.parseColor("#00A884")
+                    c.drawRoundRect(
+                        itemView.left.toFloat(),
+                        itemView.top.toFloat() + 2.dpToPx(),
+                        itemView.left.toFloat() + dX,
+                        itemView.bottom.toFloat() - 4.dpToPx(),
+                        8.dpToPx().toFloat(),
+                        8.dpToPx().toFloat(),
+                        background
+                    )
+                    val icon = ContextCompat.getDrawable(this@FloatingOverlayService, R.drawable.ic_check)
+                    icon?.let {
+                        val iconSize = 22.dpToPx()
+                        val iconMargin = (itemView.height - iconSize) / 2
+                        val iconTop = itemView.top + iconMargin
+                        val iconBottom = iconTop + iconSize
+                        val iconLeft = itemView.left + 16.dpToPx()
+                        val iconRight = iconLeft + iconSize
+                        it.setBounds(iconLeft, iconTop, iconRight, iconBottom)
+                        it.setTint(Color.WHITE)
+                        it.draw(c)
+                    }
+                } else if (dX < 0) {
+                    // Swiping Left: Red background for delete
+                    background.color = Color.parseColor("#EA0038")
+                    c.drawRoundRect(
+                        itemView.right.toFloat() + dX,
+                        itemView.top.toFloat() + 2.dpToPx(),
+                        itemView.right.toFloat(),
+                        itemView.bottom.toFloat() - 4.dpToPx(),
+                        8.dpToPx().toFloat(),
+                        8.dpToPx().toFloat(),
+                        background
+                    )
+                    val icon = ContextCompat.getDrawable(this@FloatingOverlayService, R.drawable.ic_delete)
+                    icon?.let {
+                        val iconSize = 22.dpToPx()
+                        val iconMargin = (itemView.height - iconSize) / 2
+                        val iconTop = itemView.top + iconMargin
+                        val iconBottom = iconTop + iconSize
+                        val iconRight = itemView.right - 16.dpToPx()
+                        val iconLeft = iconRight - iconSize
+                        it.setBounds(iconLeft, iconTop, iconRight, iconBottom)
+                        it.setTint(Color.WHITE)
+                        it.draw(c)
+                    }
+                }
+
+                super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive)
+            }
+        }
+
+        ItemTouchHelper(swipeHandler).attachToRecyclerView(rv)
     }
 
     private fun switchTabWithAnimation(showChecklist: Boolean) {
@@ -862,13 +1082,18 @@ class FloatingOverlayService : Service() {
 
     private fun showBubble() {
         if (bubbleView?.isAttachedToWindow == false) {
-            windowManager.addView(bubbleView, bubbleParams)
+            try {
+                windowManager.addView(bubbleView, bubbleParams)
+            } catch (ignored: Exception) {}
         }
         bubbleView?.visibility = View.VISIBLE
+        unparkBubble(animated = false)
+        scheduleBubbleParking()
     }
 
     private fun openScratchpad() {
         isScratchpadOpen = true
+        mainHandler.removeCallbacks(parkBubbleRunnable)
         hideStarredPopup()
 
         bubbleView?.animate()?.scaleX(0.4f)?.scaleY(0.4f)?.alpha(0f)?.setDuration(150)?.withEndAction {
@@ -924,6 +1149,7 @@ class FloatingOverlayService : Service() {
                     ?.start()
                 updateBadge()
                 updateBubbleStarBadge()
+                scheduleBubbleParking()
             }
             .start()
     }
@@ -932,6 +1158,8 @@ class FloatingOverlayService : Service() {
         isScratchpadOpen = false
         mainHandler.removeCallbacks(dismissPopupRunnable)
         mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
+        mainHandler.removeCallbacks(parkBubbleRunnable)
+        isBubbleParked = false
         starredPopupView?.animate()?.cancel()
         starredPopupView?.visibility = View.GONE
         bubbleView?.visibility = View.GONE
