@@ -47,10 +47,13 @@ class FloatingOverlayService : Service() {
     private var scratchpadView: View? = null
     private var starredPopupView: View? = null
     private var isStarredPopupAttached = false
+    private var autoCapturePopupView: View? = null
+    private var isAutoCaptureAttached = false
 
     private lateinit var bubbleParams: WindowManager.LayoutParams
     private lateinit var scratchpadParams: WindowManager.LayoutParams
     private lateinit var starredPopupParams: WindowManager.LayoutParams
+    private lateinit var autoCaptureParams: WindowManager.LayoutParams
 
     private var currentContactName: String = "Unknown"
     private var currentData: ContactNotesData? = null
@@ -59,8 +62,18 @@ class FloatingOverlayService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val dismissPopupRunnable = Runnable { hideStarredPopup() }
     private val resetCopyFeedbackRunnable = Runnable { resetCopyFeedback() }
+    private val dismissAutoCaptureRunnable = Runnable { hideAutoCapturePrompt() }
     private val parkBubbleRunnable = Runnable { parkBubbleToEdge() }
     private var isBubbleParked = false
+
+    private var clipboardManager: ClipboardManager? = null
+    private var lastSelfCopiedText: String? = null
+    private var lastCapturedClipText: String? = null
+    private var pendingCapturedText: String = ""
+
+    private val clipChangedListener = ClipboardManager.OnPrimaryClipChangedListener {
+        onClipboardChanged()
+    }
 
     private var activeStarredItems: List<ChecklistItem> = emptyList()
     private var currentStarredIndex: Int = 0
@@ -120,9 +133,12 @@ class FloatingOverlayService : Service() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         repository = NotesRepository.getInstance(this)
+        clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        clipboardManager?.addPrimaryClipChangedListener(clipChangedListener)
         startForeground(NOTIFICATION_ID, createNotification())
         createBubbleView()
         createStarredPopupView()
+        createAutoCapturePopupView()
         createScratchpadView()
     }
 
@@ -271,6 +287,7 @@ class FloatingOverlayService : Service() {
         val popup = starredPopupView ?: return
         val btnDismiss = popup.findViewById<ImageView>(R.id.btnDismissStarredPopup)
         val btnCopy = popup.findViewById<ImageView>(R.id.btnCopyStarred)
+        val btnInsert = popup.findViewById<ImageView>(R.id.btnInsertStarred)
         val btnNext = popup.findViewById<ImageView>(R.id.btnNextStarred)
         val tvTicker = popup.findViewById<TextView>(R.id.tvStarredTicker)
 
@@ -279,11 +296,56 @@ class FloatingOverlayService : Service() {
             hideStarredPopup()
         }
 
+        btnInsert?.setOnClickListener {
+            val item = activeStarredItems.getOrNull(currentStarredIndex)
+            val textToInsert = item?.text ?: popup.findViewById<TextView>(R.id.tvStarredValue)?.text?.toString() ?: ""
+            if (textToInsert.isNotBlank()) {
+                btnInsert.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                val inserted = WhatsAppAccessibilityService.instance?.insertTextIntoWhatsApp(textToInsert) ?: false
+                val tvHeader = popup.findViewById<TextView>(R.id.tvStarredHeader)
+
+                if (inserted) {
+                    btnInsert.setImageResource(R.drawable.ic_check)
+                    btnInsert.setColorFilter(Color.parseColor("#25D366"))
+                    btnInsert.animate().scaleX(1.3f).scaleY(1.3f).setDuration(120).withEndAction {
+                        btnInsert.animate().scaleX(1.0f).scaleY(1.0f).setDuration(100).start()
+                    }.start()
+
+                    tvHeader?.text = "INSERTED INTO WHATSAPP!"
+                    tvHeader?.setTextColor(Color.parseColor("#25D366"))
+
+                    mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
+                    mainHandler.postDelayed(resetCopyFeedbackRunnable, 2500L)
+
+                    mainHandler.removeCallbacks(dismissPopupRunnable)
+                    mainHandler.postDelayed(dismissPopupRunnable, 2800L)
+                } else {
+                    // Fallback to clipboard if accessibility service couldn't locate input field
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    lastSelfCopiedText = textToInsert
+                    val clip = ClipData.newPlainText("ChatNotes Starred", textToInsert)
+                    clipboard.setPrimaryClip(clip)
+
+                    btnInsert.setImageResource(R.drawable.ic_check)
+                    btnInsert.setColorFilter(Color.parseColor("#25D366"))
+                    tvHeader?.text = "COPIED (TAP PASTE IN CHAT)"
+                    tvHeader?.setTextColor(Color.parseColor("#25D366"))
+
+                    mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
+                    mainHandler.postDelayed(resetCopyFeedbackRunnable, 2500L)
+
+                    mainHandler.removeCallbacks(dismissPopupRunnable)
+                    mainHandler.postDelayed(dismissPopupRunnable, 4500L)
+                }
+            }
+        }
+
         btnCopy?.setOnClickListener {
             val item = activeStarredItems.getOrNull(currentStarredIndex)
             val textToCopy = item?.text ?: popup.findViewById<TextView>(R.id.tvStarredValue)?.text?.toString() ?: ""
             if (textToCopy.isNotBlank()) {
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                lastSelfCopiedText = textToCopy
                 val clip = ClipData.newPlainText("ChatNotes Starred", textToCopy)
                 clipboard.setPrimaryClip(clip)
 
@@ -384,10 +446,13 @@ class FloatingOverlayService : Service() {
         val popup = starredPopupView ?: return
         val tvHeader = popup.findViewById<TextView>(R.id.tvStarredHeader) ?: return
         val btnCopy = popup.findViewById<ImageView>(R.id.btnCopyStarred) ?: return
+        val btnInsert = popup.findViewById<ImageView>(R.id.btnInsertStarred) ?: return
         tvHeader.text = "STARRED NOTE"
         tvHeader.setTextColor(Color.parseColor("#FFB800"))
         btnCopy.setImageResource(R.drawable.ic_copy)
         btnCopy.setColorFilter(Color.parseColor("#8696A0"))
+        btnInsert.setImageResource(R.drawable.ic_insert_chat)
+        btnInsert.setColorFilter(Color.parseColor("#8696A0"))
     }
 
     private fun cycleNextStarredItem() {
@@ -538,6 +603,176 @@ class FloatingOverlayService : Service() {
         }
     }
 
+    private fun createAutoCapturePopupView() {
+        val inflater = LayoutInflater.from(this)
+        autoCapturePopupView = inflater.inflate(R.layout.layout_auto_capture_prompt, null)
+
+        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        autoCaptureParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            layoutFlag,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+        }
+
+        val prompt = autoCapturePopupView ?: return
+        val btnConfirm = prompt.findViewById<TextView>(R.id.btnConfirmAddCapture)
+        val btnDismiss = prompt.findViewById<ImageView>(R.id.btnDismissCapture)
+
+        btnDismiss?.setOnClickListener {
+            btnDismiss.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            hideAutoCapturePrompt()
+        }
+
+        btnConfirm?.setOnClickListener {
+            if (pendingCapturedText.isNotBlank()) {
+                val data = currentData ?: repository.getContactData(currentContactName)
+                val newItem = ChecklistItem(text = pendingCapturedText, isDone = false, isStarred = false)
+                data.checklist.add(newItem)
+                repository.saveContactData(data)
+                currentData = data
+
+                btnConfirm.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+
+                val tvHeader = prompt.findViewById<TextView>(R.id.tvCaptureHeader)
+                tvHeader?.text = "ADDED TO CHECKLIST!"
+                tvHeader?.setTextColor(Color.parseColor("#25D366"))
+                btnConfirm.visibility = View.GONE
+
+                updateBadge()
+                updateTabLabels()
+
+                mainHandler.removeCallbacks(dismissAutoCaptureRunnable)
+                mainHandler.postDelayed({ hideAutoCapturePrompt() }, 900L)
+            }
+        }
+    }
+
+    private fun onClipboardChanged() {
+        // Only scan when overlay bubble is active and scratchpad is not open
+        if (bubbleView?.visibility != View.VISIBLE || isScratchpadOpen) return
+        val clip = clipboardManager?.primaryClip ?: return
+        if (clip.itemCount == 0) return
+        val text = clip.getItemAt(0)?.text?.toString()?.trim() ?: return
+        if (text.isBlank()) return
+
+        // Prevent echo if ChatNotes copied it itself
+        if (text == lastSelfCopiedText) return
+
+        // Prevent repeating the same captured text multiple times
+        if (text == lastCapturedClipText) return
+
+        // Ignore excessively long text (> 350 chars) or single characters
+        if (text.length > 350 || text.length < 2) return
+
+        lastCapturedClipText = text
+        pendingCapturedText = text
+
+        showAutoCapturePrompt(text)
+    }
+
+    private fun showAutoCapturePrompt(text: String) {
+        val prompt = autoCapturePopupView ?: return
+        val bubble = bubbleView ?: return
+        if (bubble.visibility != View.VISIBLE || isScratchpadOpen) return
+
+        // Dismiss starred popup to avoid overlapping
+        hideStarredPopup()
+
+        mainHandler.removeCallbacks(dismissAutoCaptureRunnable)
+
+        val tvHeader = prompt.findViewById<TextView>(R.id.tvCaptureHeader)
+        val tvSnippet = prompt.findViewById<TextView>(R.id.tvCaptureSnippet)
+        val btnConfirm = prompt.findViewById<TextView>(R.id.btnConfirmAddCapture)
+
+        val contactFirst = currentContactName.split(" ").firstOrNull() ?: currentContactName
+        tvHeader?.text = "ADD TO ${contactFirst.uppercase()}'S CHECKLIST?"
+        tvHeader?.setTextColor(Color.parseColor("#00A884"))
+        tvSnippet?.text = text.replace("\n", " ").trim()
+        btnConfirm?.visibility = View.VISIBLE
+
+        val screenWidth = resources.displayMetrics.widthPixels
+        prompt.measure(
+            View.MeasureSpec.makeMeasureSpec((screenWidth * 0.76).toInt(), View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val promptWidth = prompt.measuredWidth
+        val promptHeight = prompt.measuredHeight
+        val bubbleSize = 50.dpToPx()
+
+        val isBubbleOnRight = (bubbleParams.x + bubbleSize / 2) >= screenWidth / 2
+
+        if (isBubbleOnRight) {
+            autoCaptureParams.x = max(12.dpToPx(), bubbleParams.x - promptWidth - 8.dpToPx())
+            prompt.pivotX = promptWidth.toFloat()
+        } else {
+            autoCaptureParams.x = min(screenWidth - promptWidth - 12.dpToPx(), bubbleParams.x + bubbleSize + 8.dpToPx())
+            prompt.pivotX = 0f
+        }
+        autoCaptureParams.y = bubbleParams.y + (bubbleSize - promptHeight) / 2
+        prompt.pivotY = promptHeight / 2f
+
+        if (!isAutoCaptureAttached) {
+            try {
+                windowManager.addView(prompt, autoCaptureParams)
+                isAutoCaptureAttached = true
+            } catch (e: Exception) {
+                isAutoCaptureAttached = true
+            }
+        } else {
+            try {
+                windowManager.updateViewLayout(prompt, autoCaptureParams)
+            } catch (e: Exception) {
+                try {
+                    windowManager.addView(prompt, autoCaptureParams)
+                    isAutoCaptureAttached = true
+                } catch (ignored: Exception) {}
+            }
+        }
+
+        prompt.visibility = View.VISIBLE
+        prompt.translationX = 0f
+        prompt.alpha = 0f
+        prompt.scaleX = 0.0f
+        prompt.scaleY = 0.0f
+        prompt.animate()
+            .alpha(1f)
+            .scaleX(1.0f)
+            .scaleY(1.0f)
+            .setDuration(260)
+            .setInterpolator(OvershootInterpolator(1.15f))
+            .start()
+
+        mainHandler.postDelayed(dismissAutoCaptureRunnable, 4500L)
+    }
+
+    private fun hideAutoCapturePrompt() {
+        mainHandler.removeCallbacks(dismissAutoCaptureRunnable)
+        val prompt = autoCapturePopupView ?: return
+        if (isAutoCaptureAttached && prompt.visibility == View.VISIBLE) {
+            prompt.animate()
+                .alpha(0f)
+                .scaleX(0.0f)
+                .scaleY(0.0f)
+                .setDuration(180)
+                .setInterpolator(AccelerateInterpolator())
+                .withEndAction {
+                    prompt.visibility = View.GONE
+                    prompt.translationX = 0f
+                }
+                .start()
+        }
+    }
+
     private fun setupBubbleTouchListener() {
         val view = bubbleView ?: return
         var initialX = 0
@@ -550,6 +785,7 @@ class FloatingOverlayService : Service() {
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     hideStarredPopup()
+                    hideAutoCapturePrompt()
                     mainHandler.removeCallbacks(parkBubbleRunnable)
                     if (isBubbleParked) {
                         unparkBubble(animated = true)
@@ -632,7 +868,7 @@ class FloatingOverlayService : Service() {
     private fun parkBubbleToEdge() {
         val view = bubbleView ?: return
         if (isScratchpadOpen || !view.isAttachedToWindow || view.visibility != View.VISIBLE || isBubbleParked) return
-        if (starredPopupView?.visibility == View.VISIBLE) {
+        if (starredPopupView?.visibility == View.VISIBLE || autoCapturePopupView?.visibility == View.VISIBLE) {
             scheduleBubbleParking()
             return
         }
@@ -1095,6 +1331,7 @@ class FloatingOverlayService : Service() {
         isScratchpadOpen = true
         mainHandler.removeCallbacks(parkBubbleRunnable)
         hideStarredPopup()
+        hideAutoCapturePrompt()
 
         bubbleView?.animate()?.scaleX(0.4f)?.scaleY(0.4f)?.alpha(0f)?.setDuration(150)?.withEndAction {
             bubbleView?.visibility = View.GONE
@@ -1158,10 +1395,13 @@ class FloatingOverlayService : Service() {
         isScratchpadOpen = false
         mainHandler.removeCallbacks(dismissPopupRunnable)
         mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
+        mainHandler.removeCallbacks(dismissAutoCaptureRunnable)
         mainHandler.removeCallbacks(parkBubbleRunnable)
         isBubbleParked = false
         starredPopupView?.animate()?.cancel()
         starredPopupView?.visibility = View.GONE
+        autoCapturePopupView?.animate()?.cancel()
+        autoCapturePopupView?.visibility = View.GONE
         bubbleView?.visibility = View.GONE
         scratchpadView?.visibility = View.GONE
     }
@@ -1189,10 +1429,16 @@ class FloatingOverlayService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        clipboardManager?.removePrimaryClipChangedListener(clipChangedListener)
         mainHandler.removeCallbacks(dismissPopupRunnable)
+        mainHandler.removeCallbacks(dismissAutoCaptureRunnable)
         if (isStarredPopupAttached && starredPopupView != null) {
             windowManager.removeView(starredPopupView)
             isStarredPopupAttached = false
+        }
+        if (isAutoCaptureAttached && autoCapturePopupView != null) {
+            windowManager.removeView(autoCapturePopupView)
+            isAutoCaptureAttached = false
         }
         if (bubbleView?.isAttachedToWindow == true) {
             windowManager.removeView(bubbleView)

@@ -71,7 +71,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="1dp"
             android:ellipsize="end"
-            android:maxWidth="170dp"
+            android:maxWidth="150dp"
             android:maxLines="2"
             android:text="Remember to mention budget"
             android:textColor="#FFFFFF"
@@ -97,6 +97,18 @@
             android:src="@drawable/ic_chevron_right"
             android:tint="#8696A0"
             android:visibility="gone"
+            app:tint="#8696A0" />
+
+        <!-- Direct Insert into WhatsApp Message Box -->
+        <ImageView
+            android:id="@+id/btnInsertStarred"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_marginEnd="2dp"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:padding="2.5dp"
+            android:src="@drawable/ic_insert_chat"
+            android:tint="#8696A0"
             app:tint="#8696A0" />
 
         <!-- One-Tap Copy to Message Bar Button -->

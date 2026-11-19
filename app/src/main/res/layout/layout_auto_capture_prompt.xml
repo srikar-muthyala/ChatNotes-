@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/autoCaptureRoot"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_auto_capture_prompt"
+    android:clickable="true"
+    android:elevation="14dp"
+    android:focusable="true"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="12dp"
+    android:paddingTop="7dp"
+    android:paddingEnd="8dp"
+    android:paddingBottom="7dp">
+
+    <!-- Clipboard/Capture Icon -->
+    <ImageView
+        android:id="@+id/ivCaptureIcon"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:src="@drawable/ic_copy"
+        android:tint="#00A884"
+        app:tint="#00A884" />
+
+    <!-- Center Content Column -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="8dp"
+        android:orientation="vertical">
+
+        <!-- Title -->
+        <TextView
+            android:id="@+id/tvCaptureHeader"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ADD TO CHECKLIST?"
+            android:textColor="#00A884"
+            android:textSize="9sp"
+            android:textStyle="bold" />
+
+        <!-- Snippet Text -->
+        <TextView
+            android:id="@+id/tvCaptureSnippet"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:ellipsize="end"
+            android:maxWidth="140dp"
+            android:maxLines="1"
+            android:text="Copied text..."
+            android:textColor="#FFFFFF"
+            android:textSize="12.5sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Action Buttons -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <!-- + Add Action Button -->
+        <TextView
+            android:id="@+id/btnConfirmAddCapture"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_add_btn"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:paddingStart="9dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="9dp"
+            android:paddingBottom="4dp"
+            android:text="+ Add"
+            android:textColor="#FFFFFF"
+            android:textSize="11.5sp"
+            android:textStyle="bold" />
+
+        <!-- Dismiss Close Button -->
+        <ImageView
+            android:id="@+id/btnDismissCapture"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:padding="3dp"
+            android:src="@drawable/ic_close"
+            android:tint="#8696A0"
+            app:tint="#8696A0" />
+    </LinearLayout>
+
+</LinearLayout>

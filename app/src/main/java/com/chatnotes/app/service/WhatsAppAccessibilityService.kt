@@ -20,6 +20,15 @@ class WhatsAppAccessibilityService : AccessibilityService() {
         private const val WHATSAPP_BUSINESS_PKG = "com.whatsapp.w4b"
         private const val MY_PKG = "com.chatnotes.app"
         private const val HIDE_DELAY_MS = 600L
+
+        var instance: WhatsAppAccessibilityService? = null
+            private set
+    }
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+        Log.d(TAG, "WhatsAppAccessibilityService connected")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -175,10 +184,84 @@ class WhatsAppAccessibilityService : AccessibilityService() {
                 lower == "message"
     }
 
+    fun insertTextIntoWhatsApp(text: String): Boolean {
+        val rootNode = rootInActiveWindow ?: return false
+        try {
+            val entryIds = listOf(
+                "com.whatsapp:id/entry",
+                "com.whatsapp.w4b:id/entry"
+            )
+            for (id in entryIds) {
+                val nodes = rootNode.findAccessibilityNodeInfosByViewId(id)
+                if (!nodes.isNullOrEmpty()) {
+                    for (node in nodes) {
+                        if (node.isEditable || node.isFocusable) {
+                            val arguments = android.os.Bundle().apply {
+                                putCharSequence(
+                                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                                    text
+                                )
+                            }
+                            node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                            val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+                            if (success) {
+                                val selectionArgs = android.os.Bundle().apply {
+                                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, text.length)
+                                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, text.length)
+                                }
+                                node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectionArgs)
+                                Log.d(TAG, "Successfully inserted text into WhatsApp entry field")
+                                return true
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fallback: search tree for any editable input node
+            val editableNode = findEditableNode(rootNode)
+            if (editableNode != null) {
+                val arguments = android.os.Bundle().apply {
+                    putCharSequence(
+                        AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                        text
+                    )
+                }
+                editableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                val success = editableNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+                if (success) {
+                    val selectionArgs = android.os.Bundle().apply {
+                        putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, text.length)
+                        putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, text.length)
+                    }
+                    editableNode.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectionArgs)
+                    Log.d(TAG, "Successfully inserted text into editable node fallback")
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error inserting text into WhatsApp: ${e.message}")
+        }
+        return false
+    }
+
+    private fun findEditableNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        if (node.isEditable) return node
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = findEditableNode(child)
+            if (found != null) return found
+        }
+        return null
+    }
+
     override fun onInterrupt() {}
 
     override fun onDestroy() {
         super.onDestroy()
+        if (instance == this) {
+            instance = null
+        }
         cancelPendingHide()
         currentActiveContact = null
         FloatingOverlayService.hideOverlay(this)
