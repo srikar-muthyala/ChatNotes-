@@ -33,7 +33,8 @@ jobs:
           cache-disabled: true
 
       - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace
+        run: |
+          gradle assembleDebug --no-daemon --stacktrace || (echo "Retrying Gradle assemble..." && gradle assembleDebug --no-daemon --stacktrace)
 
       - name: Prepare Clean Release Asset
         run: |
@@ -63,6 +64,9 @@ jobs:
             - **Unique Per Contact**: Independent checklists and notes for each person you chat with.
             - **Interactive Checklist**: Cross off talking points while messaging.
             - **Freeform Notes**: Store memos, addresses, and details.
+            - **Undo Checklist Deletion**: Instant 4-second undo banner when removing items or clearing all.
+            - **Smart Starred Notes**: Automatic mini-pill blooms once per chat without re-triggering.
+            - **Direct WhatsApp Insertion**: One-tap insert directly into WhatsApp's message box.
             - **100% Offline & Private**: Zero data leaves your device.
 
             #### 📥 Quick Installation:
