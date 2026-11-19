@@ -78,6 +78,9 @@ class FloatingOverlayService : Service() {
     private var activeStarredItems: List<ChecklistItem> = emptyList()
     private var currentStarredIndex: Int = 0
 
+    private var lastChatSessionContact: String? = null
+    private var hasShownStarredInCurrentSession: Boolean = false
+
     // Bubble UI elements
     private var ivBubbleIcon: ImageView? = null
     private var tvBubbleInitial: TextView? = null
@@ -238,6 +241,10 @@ class FloatingOverlayService : Service() {
 
     private fun loadContact(name: String, triggerStarredPopup: Boolean = false) {
         val contactChanged = (name != currentContactName)
+        if (contactChanged || lastChatSessionContact != name) {
+            lastChatSessionContact = name
+            hasShownStarredInCurrentSession = false
+        }
         currentContactName = name
         currentData = repository.getContactData(name)
 
@@ -257,7 +264,8 @@ class FloatingOverlayService : Service() {
 
         if (isScratchpadOpen) {
             updateScratchpadUI()
-        } else if (triggerStarredPopup || contactChanged) {
+        } else if (triggerStarredPopup && !hasShownStarredInCurrentSession) {
+            hasShownStarredInCurrentSession = true
             // Post so the bubble is measured, positioned, and attached in WindowManager
             mainHandler.removeCallbacks(dismissPopupRunnable)
             mainHandler.postDelayed({
@@ -1423,6 +1431,7 @@ class FloatingOverlayService : Service() {
 
     private fun openScratchpad() {
         isScratchpadOpen = true
+        hasShownStarredInCurrentSession = true
         mainHandler.removeCallbacks(parkBubbleRunnable)
         hideStarredPopup()
         hideAutoCapturePrompt()
@@ -1474,9 +1483,6 @@ class FloatingOverlayService : Service() {
                     ?.alpha(1f)
                     ?.setDuration(200)
                     ?.setInterpolator(OvershootInterpolator())
-                    ?.withEndAction {
-                        showStarredPopupIfNeeded()
-                    }
                     ?.start()
                 updateBadge()
                 updateBubbleStarBadge()
@@ -1487,6 +1493,8 @@ class FloatingOverlayService : Service() {
 
     private fun hideAll() {
         isScratchpadOpen = false
+        lastChatSessionContact = null
+        hasShownStarredInCurrentSession = false
         mainHandler.removeCallbacks(dismissPopupRunnable)
         mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
         mainHandler.removeCallbacks(dismissAutoCaptureRunnable)
