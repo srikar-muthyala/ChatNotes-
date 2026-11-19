@@ -13,6 +13,7 @@ class WhatsAppAccessibilityService : AccessibilityService() {
     private var currentActiveContact: String? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var pendingHideRunnable: Runnable? = null
+    private var lastLongClickedMessageText: String? = null
 
     companion object {
         private const val TAG = "ChatNotes_A11y"
@@ -57,7 +58,57 @@ class WhatsAppAccessibilityService : AccessibilityService() {
             return
         }
 
-        // We are inside WhatsApp: check for active conversation
+        // 1. Capture message text when user long-presses a message to select it
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED) {
+            val text = extractMessageTextFromEvent(event)
+            if (!text.isNullOrBlank() && !isIgnoredTitle(text)) {
+                lastLongClickedMessageText = text
+                Log.d(TAG, "Captured long-clicked message: $text")
+            }
+        }
+
+        // 2. Capture message text when text selection changes
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
+            val text = event.text?.joinToString(" ")?.trim()
+            if (!text.isNullOrBlank() && !isIgnoredTitle(text)) {
+                lastLongClickedMessageText = text
+            }
+        }
+
+        // 3. Detect when the user taps WhatsApp's "Copy" action bar button
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            val viewId = event.source?.viewIdResourceName ?: ""
+            val desc = event.contentDescription?.toString() ?: ""
+            val isCopyAction = viewId.contains("menuitem_copy", ignoreCase = true) ||
+                    desc.equals("Copy", ignoreCase = true) ||
+                    desc.contains("copy", ignoreCase = true) ||
+                    desc.equals("Copiar", ignoreCase = true) ||
+                    desc.equals("Copier", ignoreCase = true)
+
+            if (isCopyAction) {
+                Log.d(TAG, "WhatsApp Copy action tapped!")
+                val root = rootInActiveWindow
+                val copiedText = (root?.let { findSelectedMessageText(it) } ?: lastLongClickedMessageText)
+                val targetContact = currentActiveContact
+                if (!copiedText.isNullOrBlank() && targetContact != null) {
+                    Log.d(TAG, "Auto-capturing text for contact $targetContact: $copiedText")
+                    FloatingOverlayService.triggerAutoCapture(this, targetContact, copiedText)
+                }
+            }
+        }
+
+        // 4. Check if WhatsApp is currently in message selection mode (e.g., "1", "2 selected")
+        val rootNode = rootInActiveWindow
+        val isSelectionActive = rootNode != null && isSelectionModeActive(rootNode)
+
+        // When selection mode is active, user is selecting messages.
+        // DO NOT change currentActiveContact or re-bloom the starred popup!
+        if (isSelectionActive) {
+            cancelPendingHide()
+            return
+        }
+
+        // 5. Normal chat detection
         val detectedContact = extractContactName()
 
         if (!detectedContact.isNullOrBlank()) {
@@ -67,10 +118,17 @@ class WhatsAppAccessibilityService : AccessibilityService() {
             val isNewChat = (detectedContact != currentActiveContact)
             val isWindowStateChange = (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)
 
-            if (isNewChat || wasPendingHide || isWindowStateChange) {
+            // A chat is considered "newly opened" if we navigated into a different contact
+            // or returned to WhatsApp from another app/chat list.
+            val shouldTriggerNewChat = isNewChat || wasPendingHide
+
+            if (shouldTriggerNewChat) {
                 currentActiveContact = detectedContact
-                Log.d(TAG, "Triggering overlay for: $detectedContact (isNewChat=$isNewChat, wasPendingHide=$wasPendingHide, windowChanged=$isWindowStateChange)")
-                FloatingOverlayService.showOverlay(this, detectedContact)
+                Log.d(TAG, "Triggering overlay for new chat: $detectedContact")
+                FloatingOverlayService.showOverlay(this, detectedContact, isNewChat = true)
+            } else if (isWindowStateChange && currentActiveContact == detectedContact) {
+                // Keep overlay displayed on in-chat window changes, but DO NOT re-bloom the starred popup!
+                FloatingOverlayService.showOverlay(this, detectedContact, isNewChat = false)
             }
         } else {
             // In WhatsApp, but on the main chat list / search / settings
@@ -165,7 +223,15 @@ class WhatsAppAccessibilityService : AccessibilityService() {
     }
 
     private fun isIgnoredTitle(text: String): Boolean {
-        val lower = text.lowercase().trim()
+        val trimmed = text.trim()
+        val lower = trimmed.lowercase()
+
+        // Message selection counts (e.g., "1", "2", "3", "1 selected", "2 selected", etc.)
+        if (lower.matches(Regex("^\\d+$"))) return true
+        if (lower.matches(Regex("^\\d+\\s+selected.*"))) return true
+        if (lower.matches(Regex("^\\d+\\s+item.*"))) return true
+        if (lower.matches(Regex("^\\d+\\s+of\\s+\\d+.*"))) return true
+
         return lower == "whatsapp" ||
                 lower == "chats" ||
                 lower == "status" ||
@@ -182,6 +248,87 @@ class WhatsAppAccessibilityService : AccessibilityService() {
                 lower == "all" ||
                 lower.startsWith("type a message") ||
                 lower == "message"
+    }
+
+    private fun isSelectionModeActive(rootNode: AccessibilityNodeInfo): Boolean {
+        // When messages are selected in WhatsApp, contextual action bar displays
+        val closeNodes = rootNode.findAccessibilityNodeInfosByViewId("action_mode_close_button")
+        if (!closeNodes.isNullOrEmpty()) return true
+
+        val copyNodes = rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/menuitem_copy")
+        if (!copyNodes.isNullOrEmpty()) return true
+
+        val w4bCopy = rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp.w4b:id/menuitem_copy")
+        if (!w4bCopy.isNullOrEmpty()) return true
+
+        return false
+    }
+
+    private fun extractMessageTextFromEvent(event: AccessibilityEvent): String? {
+        val source = event.source ?: return null
+        return extractTextFromNode(source)
+    }
+
+    private fun extractTextFromNode(node: AccessibilityNodeInfo): String? {
+        val t = node.text?.toString()?.trim()
+        if (!t.isNullOrBlank() && !isIgnoredTitle(t)) return t
+
+        // Check if this node has message_text children
+        val messageIds = listOf(
+            "com.whatsapp:id/message_text",
+            "com.whatsapp.w4b:id/message_text"
+        )
+        for (id in messageIds) {
+            val nodes = node.findAccessibilityNodeInfosByViewId(id)
+            if (!nodes.isNullOrEmpty()) {
+                val found = nodes.firstOrNull()?.text?.toString()?.trim()
+                if (!found.isNullOrBlank() && !isIgnoredTitle(found)) return found
+            }
+        }
+
+        // Recursively check children
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val childText = extractTextFromNode(child)
+            if (!childText.isNullOrBlank()) return childText
+        }
+        return null
+    }
+
+    private fun findSelectedMessageText(root: AccessibilityNodeInfo): String? {
+        val messageIds = listOf(
+            "com.whatsapp:id/message_text",
+            "com.whatsapp.w4b:id/message_text"
+        )
+        for (id in messageIds) {
+            val nodes = root.findAccessibilityNodeInfosByViewId(id)
+            if (!nodes.isNullOrEmpty()) {
+                val texts = mutableListOf<String>()
+                for (node in nodes) {
+                    if (isNodeOrAncestorSelected(node)) {
+                        val t = node.text?.toString()?.trim()
+                        if (!t.isNullOrBlank() && !isIgnoredTitle(t)) {
+                            texts.add(t)
+                        }
+                    }
+                }
+                if (texts.isNotEmpty()) {
+                    return texts.joinToString("\n")
+                }
+            }
+        }
+        return null
+    }
+
+    private fun isNodeOrAncestorSelected(node: AccessibilityNodeInfo?): Boolean {
+        var curr = node
+        var depth = 0
+        while (curr != null && depth < 6) {
+            if (curr.isSelected) return true
+            curr = curr.parent
+            depth++
+        }
+        return false
     }
 
     fun insertTextIntoWhatsApp(text: String): Boolean {

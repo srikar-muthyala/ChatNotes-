@@ -98,7 +98,10 @@ class FloatingOverlayService : Service() {
     companion object {
         const val ACTION_SHOW = "com.chatnotes.app.ACTION_SHOW"
         const val ACTION_HIDE = "com.chatnotes.app.ACTION_HIDE"
+        const val ACTION_AUTO_CAPTURE = "com.chatnotes.app.ACTION_AUTO_CAPTURE"
         const val EXTRA_CONTACT = "extra_contact_name"
+        const val EXTRA_CAPTURED_TEXT = "extra_captured_text"
+        const val EXTRA_IS_NEW_CHAT = "extra_is_new_chat"
         private const val CHANNEL_ID = "chatnotes_overlay_channel"
         private const val NOTIFICATION_ID = 1001
         private const val PREFS_NAME = "chatnotes_overlay_prefs"
@@ -109,10 +112,24 @@ class FloatingOverlayService : Service() {
         @Volatile
         var isScratchpadOpen = false
 
-        fun showOverlay(context: Context, contactName: String) {
+        fun showOverlay(context: Context, contactName: String, isNewChat: Boolean = false) {
             val intent = Intent(context, FloatingOverlayService::class.java).apply {
                 action = ACTION_SHOW
                 putExtra(EXTRA_CONTACT, contactName)
+                putExtra(EXTRA_IS_NEW_CHAT, isNewChat)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+
+        fun triggerAutoCapture(context: Context, contactName: String, text: String) {
+            val intent = Intent(context, FloatingOverlayService::class.java).apply {
+                action = ACTION_AUTO_CAPTURE
+                putExtra(EXTRA_CONTACT, contactName)
+                putExtra(EXTRA_CAPTURED_TEXT, text)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -147,10 +164,27 @@ class FloatingOverlayService : Service() {
         when (action) {
             ACTION_SHOW -> {
                 val contact = intent.getStringExtra(EXTRA_CONTACT) ?: "WhatsApp Chat"
+                val isNewChat = intent.getBooleanExtra(EXTRA_IS_NEW_CHAT, false)
                 if (!isScratchpadOpen) {
                     showBubble()
                 }
-                loadContact(contact)
+                loadContact(contact, triggerStarredPopup = isNewChat)
+            }
+            ACTION_AUTO_CAPTURE -> {
+                val contact = intent.getStringExtra(EXTRA_CONTACT) ?: currentContactName
+                val text = intent.getStringExtra(EXTRA_CAPTURED_TEXT) ?: ""
+                if (text.isNotBlank()) {
+                    if (contact.isNotBlank() && contact != "Unknown" && contact != "WhatsApp Chat") {
+                        currentContactName = contact
+                        currentData = repository.getContactData(contact)
+                    }
+                    if (!isScratchpadOpen) {
+                        showBubble()
+                        mainHandler.postDelayed({
+                            showAutoCapturePrompt(text)
+                        }, 80L)
+                    }
+                }
             }
             ACTION_HIDE -> {
                 if (!isScratchpadOpen) {
@@ -159,6 +193,33 @@ class FloatingOverlayService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    private fun View.bounceClick(onEnd: (() -> Unit)? = null) {
+        this.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        this.animate()
+            .scaleX(0.85f)
+            .scaleY(0.85f)
+            .setDuration(75)
+            .withEndAction {
+                this.animate()
+                    .scaleX(1.06f)
+                    .scaleY(1.06f)
+                    .setDuration(95)
+                    .setInterpolator(OvershootInterpolator(1.3f))
+                    .withEndAction {
+                        this.animate()
+                            .scaleX(1.0f)
+                            .scaleY(1.0f)
+                            .setDuration(75)
+                            .withEndAction {
+                                onEnd?.invoke()
+                            }
+                            .start()
+                    }
+                    .start()
+            }
+            .start()
     }
 
     private fun Int.dpToPx(): Int {
@@ -175,7 +236,8 @@ class FloatingOverlayService : Service() {
         return null
     }
 
-    private fun loadContact(name: String) {
+    private fun loadContact(name: String, triggerStarredPopup: Boolean = false) {
+        val contactChanged = (name != currentContactName)
         currentContactName = name
         currentData = repository.getContactData(name)
 
@@ -195,7 +257,7 @@ class FloatingOverlayService : Service() {
 
         if (isScratchpadOpen) {
             updateScratchpadUI()
-        } else {
+        } else if (triggerStarredPopup || contactChanged) {
             // Post so the bubble is measured, positioned, and attached in WindowManager
             mainHandler.removeCallbacks(dismissPopupRunnable)
             mainHandler.postDelayed({
@@ -292,47 +354,78 @@ class FloatingOverlayService : Service() {
         val tvTicker = popup.findViewById<TextView>(R.id.tvStarredTicker)
 
         btnDismiss?.setOnClickListener {
-            btnDismiss.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-            hideStarredPopup()
+            btnDismiss.bounceClick {
+                hideStarredPopup()
+            }
         }
 
         btnInsert?.setOnClickListener {
-            val item = activeStarredItems.getOrNull(currentStarredIndex)
-            val textToInsert = item?.text ?: popup.findViewById<TextView>(R.id.tvStarredValue)?.text?.toString() ?: ""
-            if (textToInsert.isNotBlank()) {
-                btnInsert.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                val inserted = WhatsAppAccessibilityService.instance?.insertTextIntoWhatsApp(textToInsert) ?: false
-                val tvHeader = popup.findViewById<TextView>(R.id.tvStarredHeader)
+            btnInsert.bounceClick {
+                val item = activeStarredItems.getOrNull(currentStarredIndex)
+                val textToInsert = item?.text ?: popup.findViewById<TextView>(R.id.tvStarredValue)?.text?.toString() ?: ""
+                if (textToInsert.isNotBlank()) {
+                    val inserted = WhatsAppAccessibilityService.instance?.insertTextIntoWhatsApp(textToInsert) ?: false
+                    val tvHeader = popup.findViewById<TextView>(R.id.tvStarredHeader)
 
-                if (inserted) {
-                    btnInsert.setImageResource(R.drawable.ic_check)
-                    btnInsert.setColorFilter(Color.parseColor("#25D366"))
-                    btnInsert.animate().scaleX(1.3f).scaleY(1.3f).setDuration(120).withEndAction {
-                        btnInsert.animate().scaleX(1.0f).scaleY(1.0f).setDuration(100).start()
-                    }.start()
+                    if (inserted) {
+                        btnInsert.setImageResource(R.drawable.ic_check)
+                        btnInsert.setColorFilter(Color.parseColor("#25D366"))
+                        btnInsert.animate().scaleX(1.3f).scaleY(1.3f).setDuration(120).withEndAction {
+                            btnInsert.animate().scaleX(1.0f).scaleY(1.0f).setDuration(100).start()
+                        }.start()
 
-                    tvHeader?.text = "INSERTED INTO WHATSAPP!"
-                    tvHeader?.setTextColor(Color.parseColor("#25D366"))
+                        tvHeader?.text = "INSERTED INTO WHATSAPP!"
+                        tvHeader?.setTextColor(Color.parseColor("#25D366"))
 
-                    mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
-                    mainHandler.postDelayed(resetCopyFeedbackRunnable, 2500L)
+                        mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
+                        mainHandler.postDelayed(resetCopyFeedbackRunnable, 2500L)
 
-                    mainHandler.removeCallbacks(dismissPopupRunnable)
-                    mainHandler.postDelayed(dismissPopupRunnable, 2800L)
-                } else {
-                    // Fallback to clipboard if accessibility service couldn't locate input field
+                        mainHandler.removeCallbacks(dismissPopupRunnable)
+                        mainHandler.postDelayed(dismissPopupRunnable, 2800L)
+                    } else {
+                        // Fallback to clipboard if accessibility service couldn't locate input field
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        lastSelfCopiedText = textToInsert
+                        val clip = ClipData.newPlainText("ChatNotes Starred", textToInsert)
+                        clipboard.setPrimaryClip(clip)
+
+                        btnInsert.setImageResource(R.drawable.ic_check)
+                        btnInsert.setColorFilter(Color.parseColor("#25D366"))
+                        tvHeader?.text = "COPIED (TAP PASTE IN CHAT)"
+                        tvHeader?.setTextColor(Color.parseColor("#25D366"))
+
+                        mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
+                        mainHandler.postDelayed(resetCopyFeedbackRunnable, 2500L)
+
+                        mainHandler.removeCallbacks(dismissPopupRunnable)
+                        mainHandler.postDelayed(dismissPopupRunnable, 4500L)
+                    }
+                }
+            }
+        }
+
+        btnCopy?.setOnClickListener {
+            btnCopy.bounceClick {
+                val item = activeStarredItems.getOrNull(currentStarredIndex)
+                val textToCopy = item?.text ?: popup.findViewById<TextView>(R.id.tvStarredValue)?.text?.toString() ?: ""
+                if (textToCopy.isNotBlank()) {
                     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    lastSelfCopiedText = textToInsert
-                    val clip = ClipData.newPlainText("ChatNotes Starred", textToInsert)
+                    lastSelfCopiedText = textToCopy
+                    val clip = ClipData.newPlainText("ChatNotes Starred", textToCopy)
                     clipboard.setPrimaryClip(clip)
 
-                    btnInsert.setImageResource(R.drawable.ic_check)
-                    btnInsert.setColorFilter(Color.parseColor("#25D366"))
-                    tvHeader?.text = "COPIED (TAP PASTE IN CHAT)"
+                    btnCopy.setImageResource(R.drawable.ic_check)
+                    btnCopy.setColorFilter(Color.parseColor("#25D366"))
+                    btnCopy.animate().scaleX(1.3f).scaleY(1.3f).setDuration(120).withEndAction {
+                        btnCopy.animate().scaleX(1.0f).scaleY(1.0f).setDuration(100).start()
+                    }.start()
+
+                    val tvHeader = popup.findViewById<TextView>(R.id.tvStarredHeader)
+                    tvHeader?.text = "COPIED TO MESSAGE BAR!"
                     tvHeader?.setTextColor(Color.parseColor("#25D366"))
 
                     mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
-                    mainHandler.postDelayed(resetCopyFeedbackRunnable, 2500L)
+                    mainHandler.postDelayed(resetCopyFeedbackRunnable, 2000L)
 
                     mainHandler.removeCallbacks(dismissPopupRunnable)
                     mainHandler.postDelayed(dismissPopupRunnable, 4500L)
@@ -340,37 +433,10 @@ class FloatingOverlayService : Service() {
             }
         }
 
-        btnCopy?.setOnClickListener {
-            val item = activeStarredItems.getOrNull(currentStarredIndex)
-            val textToCopy = item?.text ?: popup.findViewById<TextView>(R.id.tvStarredValue)?.text?.toString() ?: ""
-            if (textToCopy.isNotBlank()) {
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                lastSelfCopiedText = textToCopy
-                val clip = ClipData.newPlainText("ChatNotes Starred", textToCopy)
-                clipboard.setPrimaryClip(clip)
-
-                btnCopy.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                btnCopy.setImageResource(R.drawable.ic_check)
-                btnCopy.setColorFilter(Color.parseColor("#25D366"))
-                btnCopy.animate().scaleX(1.3f).scaleY(1.3f).setDuration(120).withEndAction {
-                    btnCopy.animate().scaleX(1.0f).scaleY(1.0f).setDuration(100).start()
-                }.start()
-
-                val tvHeader = popup.findViewById<TextView>(R.id.tvStarredHeader)
-                tvHeader?.text = "COPIED TO MESSAGE BAR!"
-                tvHeader?.setTextColor(Color.parseColor("#25D366"))
-
-                mainHandler.removeCallbacks(resetCopyFeedbackRunnable)
-                mainHandler.postDelayed(resetCopyFeedbackRunnable, 2000L)
-
-                mainHandler.removeCallbacks(dismissPopupRunnable)
-                mainHandler.postDelayed(dismissPopupRunnable, 4500L)
+        val cycleAction = View.OnClickListener { v ->
+            v?.bounceClick {
+                cycleNextStarredItem()
             }
-        }
-
-        val cycleAction = View.OnClickListener {
-            btnNext?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-            cycleNextStarredItem()
         }
         btnNext?.setOnClickListener(cycleAction)
         tvTicker?.setOnClickListener(cycleAction)
@@ -629,30 +695,31 @@ class FloatingOverlayService : Service() {
         val btnDismiss = prompt.findViewById<ImageView>(R.id.btnDismissCapture)
 
         btnDismiss?.setOnClickListener {
-            btnDismiss.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-            hideAutoCapturePrompt()
+            btnDismiss.bounceClick {
+                hideAutoCapturePrompt()
+            }
         }
 
         btnConfirm?.setOnClickListener {
-            if (pendingCapturedText.isNotBlank()) {
-                val data = currentData ?: repository.getContactData(currentContactName)
-                val newItem = ChecklistItem(text = pendingCapturedText, isDone = false, isStarred = false)
-                data.checklist.add(newItem)
-                repository.saveContactData(data)
-                currentData = data
+            btnConfirm.bounceClick {
+                if (pendingCapturedText.isNotBlank()) {
+                    val data = currentData ?: repository.getContactData(currentContactName)
+                    val newItem = ChecklistItem(text = pendingCapturedText, isDone = false, isStarred = false)
+                    data.checklist.add(newItem)
+                    repository.saveContactData(data)
+                    currentData = data
 
-                btnConfirm.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    val tvHeader = prompt.findViewById<TextView>(R.id.tvCaptureHeader)
+                    tvHeader?.text = "ADDED TO CHECKLIST!"
+                    tvHeader?.setTextColor(Color.parseColor("#25D366"))
+                    btnConfirm.visibility = View.GONE
 
-                val tvHeader = prompt.findViewById<TextView>(R.id.tvCaptureHeader)
-                tvHeader?.text = "ADDED TO CHECKLIST!"
-                tvHeader?.setTextColor(Color.parseColor("#25D366"))
-                btnConfirm.visibility = View.GONE
+                    updateBadge()
+                    updateTabLabels()
 
-                updateBadge()
-                updateTabLabels()
-
-                mainHandler.removeCallbacks(dismissAutoCaptureRunnable)
-                mainHandler.postDelayed({ hideAutoCapturePrompt() }, 900L)
+                    mainHandler.removeCallbacks(dismissAutoCaptureRunnable)
+                    mainHandler.postDelayed({ hideAutoCapturePrompt() }, 900L)
+                }
             }
         }
     }
@@ -694,8 +761,12 @@ class FloatingOverlayService : Service() {
         val tvSnippet = prompt.findViewById<TextView>(R.id.tvCaptureSnippet)
         val btnConfirm = prompt.findViewById<TextView>(R.id.btnConfirmAddCapture)
 
+        lastCapturedClipText = text
+        pendingCapturedText = text
+
         val contactFirst = currentContactName.split(" ").firstOrNull() ?: currentContactName
-        tvHeader?.text = "ADD TO ${contactFirst.uppercase()}'S CHECKLIST?"
+        val displayName = if (contactFirst.isBlank() || contactFirst.equals("Unknown", ignoreCase = true) || contactFirst.equals("WhatsApp Chat", ignoreCase = true)) "THIS CHAT" else contactFirst.uppercase()
+        tvHeader?.text = "ADD TO $displayName'S CHECKLIST?"
         tvHeader?.setTextColor(Color.parseColor("#00A884"))
         tvSnippet?.text = text.replace("\n", " ").trim()
         btnConfirm?.visibility = View.VISIBLE
@@ -1020,7 +1091,9 @@ class FloatingOverlayService : Service() {
             }
         }
 
-        btnAdd.setOnClickListener { addAction() }
+        btnAdd.setOnClickListener {
+            btnAdd.bounceClick { addAction() }
+        }
         etNewChecklistItem?.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 addAction()
@@ -1028,16 +1101,19 @@ class FloatingOverlayService : Service() {
             } else false
         }
 
-        pad.findViewById<TextView>(R.id.btnClearAllChecklist)?.setOnClickListener {
-            currentData?.let { data ->
-                if (data.checklist.isNotEmpty()) {
-                    data.checklist.clear()
-                    repository.saveContactData(data)
-                    checklistAdapter?.updateItems(data.checklist)
-                    checkEmptyState()
-                    updateBadge()
-                    updateBubbleStarBadge()
-                    updateTabLabels()
+        val btnClear = pad.findViewById<TextView>(R.id.btnClearAllChecklist)
+        btnClear?.setOnClickListener {
+            btnClear.bounceClick {
+                currentData?.let { data ->
+                    if (data.checklist.isNotEmpty()) {
+                        data.checklist.clear()
+                        repository.saveContactData(data)
+                        checklistAdapter?.updateItems(data.checklist)
+                        checkEmptyState()
+                        updateBadge()
+                        updateBubbleStarBadge()
+                        updateTabLabels()
+                    }
                 }
             }
         }
@@ -1059,28 +1135,46 @@ class FloatingOverlayService : Service() {
             override fun afterTextChanged(s: Editable?) {}
         })
 
-        // Tabs with smooth crossfade
+        // Tabs with smooth bouncy feedback
         btnTabChecklist?.setOnClickListener {
-            if (!activeTabIsChecklist) {
-                activeTabIsChecklist = true
-                switchTabWithAnimation(showChecklist = true)
+            btnTabChecklist?.bounceClick {
+                if (!activeTabIsChecklist) {
+                    activeTabIsChecklist = true
+                    switchTabWithAnimation(showChecklist = true)
+                }
             }
         }
 
         btnTabNotes?.setOnClickListener {
-            if (activeTabIsChecklist) {
-                activeTabIsChecklist = false
-                switchTabWithAnimation(showChecklist = false)
+            btnTabNotes?.bounceClick {
+                if (activeTabIsChecklist) {
+                    activeTabIsChecklist = false
+                    switchTabWithAnimation(showChecklist = false)
+                }
             }
         }
 
-        // Close button with animated shrink
-        pad.findViewById<View>(R.id.btnCloseScratchpad).setOnClickListener {
-            closeScratchpad()
+        // Close button with animated shrink and bounce
+        val btnClose = pad.findViewById<View>(R.id.btnCloseScratchpad)
+        btnClose?.setOnClickListener {
+            btnClose.bounceClick {
+                closeScratchpad()
+            }
         }
 
-        // Theme toggle
-        pad.findViewById<View>(R.id.btnToggleTheme).setOnClickListener {
+        // Theme toggle with 180 degree spin animation
+        val btnTheme = pad.findViewById<View>(R.id.btnToggleTheme)
+        btnTheme?.setOnClickListener {
+            btnTheme.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            btnTheme.animate()
+                .rotationBy(180f)
+                .scaleX(0.82f)
+                .scaleY(0.82f)
+                .setDuration(120)
+                .withEndAction {
+                    btnTheme.animate().scaleX(1.0f).scaleY(1.0f).setDuration(100).start()
+                }
+                .start()
             val newIsDark = !repository.isDarkTheme()
             repository.setDarkTheme(newIsDark)
             applyTheme(newIsDark)
@@ -1525,11 +1619,12 @@ class ChecklistAdapter(
         }
 
         holder.btnStar.setOnClickListener {
+            holder.btnStar.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             item.isStarred = !item.isStarred
             if (item.isStarred) {
                 holder.btnStar.setImageResource(R.drawable.ic_star_filled)
                 holder.btnStar.setColorFilter(Color.parseColor("#FFB800"))
-                holder.btnStar.animate().scaleX(1.3f).scaleY(1.3f).setDuration(110).withEndAction {
+                holder.btnStar.animate().scaleX(1.35f).scaleY(1.35f).setDuration(110).withEndAction {
                     holder.btnStar.animate().scaleX(1.0f).scaleY(1.0f).setDuration(90).start()
                 }.start()
             } else {
@@ -1537,12 +1632,24 @@ class ChecklistAdapter(
                 holder.btnStar.setColorFilter(
                     if (isDark) Color.parseColor("#8696A0") else Color.parseColor("#667781")
                 )
+                holder.btnStar.animate().scaleX(0.85f).scaleY(0.85f).setDuration(80).withEndAction {
+                    holder.btnStar.animate().scaleX(1.0f).scaleY(1.0f).setDuration(80).start()
+                }.start()
             }
             onStarToggled(position, item.isStarred)
         }
 
         holder.btnDelete.setOnClickListener {
-            onDeleteClicked(position)
+            holder.btnDelete.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            holder.btnDelete.animate()
+                .scaleX(0.8f)
+                .scaleY(0.8f)
+                .setDuration(70)
+                .withEndAction {
+                    holder.btnDelete.animate().scaleX(1.0f).scaleY(1.0f).setDuration(70).start()
+                    onDeleteClicked(position)
+                }
+                .start()
         }
     }
 
