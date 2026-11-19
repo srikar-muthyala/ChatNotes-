@@ -114,10 +114,10 @@ class FloatingOverlayService : Service() {
         when (action) {
             ACTION_SHOW -> {
                 val contact = intent.getStringExtra(EXTRA_CONTACT) ?: "WhatsApp Chat"
-                loadContact(contact)
                 if (!isScratchpadOpen) {
                     showBubble()
                 }
+                loadContact(contact)
             }
             ACTION_HIDE -> {
                 if (!isScratchpadOpen) {
@@ -163,8 +163,13 @@ class FloatingOverlayService : Service() {
         if (isScratchpadOpen) {
             updateScratchpadUI()
         } else {
-            // Show starred reminder popup when opening their chat
-            showStarredPopupIfNeeded()
+            // Post so the bubble is measured, positioned, and attached in WindowManager
+            mainHandler.removeCallbacks(dismissPopupRunnable)
+            mainHandler.postDelayed({
+                if (!isScratchpadOpen && bubbleView?.visibility == View.VISIBLE) {
+                    showStarredPopupIfNeeded()
+                }
+            }, 120L)
         }
     }
 
@@ -267,7 +272,13 @@ class FloatingOverlayService : Service() {
     private fun showStarredPopup(text: String) {
         val popup = starredPopupView ?: return
         val bubble = bubbleView ?: return
-        if (!bubble.isAttachedToWindow || bubble.visibility != View.VISIBLE) return
+        if (bubble.visibility != View.VISIBLE) return
+
+        if (bubble.isAttachedToWindow == false) {
+            try {
+                windowManager.addView(bubble, bubbleParams)
+            } catch (ignored: Exception) {}
+        }
 
         mainHandler.removeCallbacks(dismissPopupRunnable)
 
@@ -280,34 +291,48 @@ class FloatingOverlayService : Service() {
         )
         val popupWidth = popup.measuredWidth
         val popupHeight = popup.measuredHeight
-        val bubbleSize = 60.dpToPx()
+        val bubbleSize = 50.dpToPx()
 
         val isBubbleOnRight = (bubbleParams.x + bubbleSize / 2) >= screenWidth / 2
 
         if (isBubbleOnRight) {
             starredPopupParams.x = max(16.dpToPx(), bubbleParams.x - popupWidth - 8.dpToPx())
+            popup.pivotX = popupWidth.toFloat()
         } else {
             starredPopupParams.x = min(screenWidth - popupWidth - 16.dpToPx(), bubbleParams.x + bubbleSize + 8.dpToPx())
+            popup.pivotX = 0f
         }
         starredPopupParams.y = bubbleParams.y + (bubbleSize - popupHeight) / 2
+        popup.pivotY = popupHeight / 2f
 
         if (!isStarredPopupAttached) {
-            windowManager.addView(popup, starredPopupParams)
-            isStarredPopupAttached = true
+            try {
+                windowManager.addView(popup, starredPopupParams)
+                isStarredPopupAttached = true
+            } catch (e: Exception) {
+                isStarredPopupAttached = true
+            }
         } else {
-            windowManager.updateViewLayout(popup, starredPopupParams)
+            try {
+                windowManager.updateViewLayout(popup, starredPopupParams)
+            } catch (e: Exception) {
+                try {
+                    windowManager.addView(popup, starredPopupParams)
+                    isStarredPopupAttached = true
+                } catch (ignored: Exception) {}
+            }
         }
 
         popup.visibility = View.VISIBLE
         popup.alpha = 0f
-        popup.scaleX = 0.8f
-        popup.scaleY = 0.8f
+        popup.scaleX = 0.0f
+        popup.scaleY = 0.0f
         popup.animate()
             .alpha(1f)
             .scaleX(1.0f)
             .scaleY(1.0f)
-            .setDuration(220)
-            .setInterpolator(OvershootInterpolator(1.1f))
+            .setDuration(260)
+            .setInterpolator(OvershootInterpolator(1.15f))
             .start()
 
         // Auto-dismiss after 6.5 seconds
@@ -320,9 +345,10 @@ class FloatingOverlayService : Service() {
         if (isStarredPopupAttached && popup.visibility == View.VISIBLE) {
             popup.animate()
                 .alpha(0f)
-                .scaleX(0.8f)
-                .scaleY(0.8f)
-                .setDuration(160)
+                .scaleX(0.0f)
+                .scaleY(0.0f)
+                .setDuration(180)
+                .setInterpolator(AccelerateInterpolator())
                 .withEndAction {
                     popup.visibility = View.GONE
                 }
@@ -726,6 +752,9 @@ class FloatingOverlayService : Service() {
                     ?.alpha(1f)
                     ?.setDuration(200)
                     ?.setInterpolator(OvershootInterpolator())
+                    ?.withEndAction {
+                        showStarredPopupIfNeeded()
+                    }
                     ?.start()
                 updateBadge()
                 updateBubbleStarBadge()
@@ -735,7 +764,9 @@ class FloatingOverlayService : Service() {
 
     private fun hideAll() {
         isScratchpadOpen = false
-        hideStarredPopup()
+        mainHandler.removeCallbacks(dismissPopupRunnable)
+        starredPopupView?.animate()?.cancel()
+        starredPopupView?.visibility = View.GONE
         bubbleView?.visibility = View.GONE
         scratchpadView?.visibility = View.GONE
     }

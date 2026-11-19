@@ -52,12 +52,15 @@ class WhatsAppAccessibilityService : AccessibilityService() {
         val detectedContact = extractContactName()
 
         if (!detectedContact.isNullOrBlank()) {
-            // Cancel any pending hide because we are definitely in an active chat
+            val wasPendingHide = (pendingHideRunnable != null)
             cancelPendingHide()
 
-            if (detectedContact != currentActiveContact) {
+            val isNewChat = (detectedContact != currentActiveContact)
+            val isWindowStateChange = (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)
+
+            if (isNewChat || wasPendingHide || isWindowStateChange) {
                 currentActiveContact = detectedContact
-                Log.d(TAG, "Showing overlay for: $detectedContact")
+                Log.d(TAG, "Triggering overlay for: $detectedContact (isNewChat=$isNewChat, wasPendingHide=$wasPendingHide, windowChanged=$isWindowStateChange)")
                 FloatingOverlayService.showOverlay(this, detectedContact)
             }
         } else {
